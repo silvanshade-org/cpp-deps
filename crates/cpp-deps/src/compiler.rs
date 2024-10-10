@@ -118,17 +118,10 @@ impl Compiler {
     fn compile(
         &self,
         _root: &r5::Utf8Path, // NOTE: use for error
-        src: &r5::Utf8Path,   // NOTE: use for error
+        _src: &r5::Utf8Path,  // NOTE: use for error
         dst: r5::Utf8PathBuf,
         mut cmd: Command,
     ) -> Result<r5::Utf8PathBuf, InnerError> {
-        // println!(
-        //     "{}",
-        //     cmd.get_args()
-        //         .map(|arg| arg.to_string_lossy())
-        //         .collect::<Vec<_>>()
-        //         .join(" ")
-        // );
         let output = cmd
             .output()
             .map_err(|err| InnerError::new(InnerErrorKind::CommandStatus { err }))?;
@@ -178,12 +171,11 @@ impl CompilerFamily {
         if let Some(dir) = dst.parent() {
             std::fs::create_dir_all(dir).map_err(|err| InnerError::new(InnerErrorKind::FsCreateDirAll { err }))?;
         }
-        let cxx = match self {
+        match self {
             CompilerFamily::Clang => self.dep_file_cmd_clang(cxx, src, dst),
             CompilerFamily::Gcc => self.dep_file_cmd_gcc(cxx, src, dst),
             CompilerFamily::Msvc => self.dep_file_cmd_msvc(cxx, src, dst),
-        }?;
-        Ok(cxx)
+        }
     }
 
     fn dep_file_cmd_clang(
@@ -278,12 +270,11 @@ impl CompilerFamily {
         } else {
             None
         };
-        let cxx = match self {
+        match self {
             CompilerFamily::Clang => self.obj_file_cmd_clang(cxx, src, dst, dep_info, parent, bmi_dirs, bmi_maps),
             CompilerFamily::Gcc => self.obj_file_cmd_gcc(cxx, src, dst),
             CompilerFamily::Msvc => self.obj_file_cmd_msvc(cxx, src, dst, dep_info, parent, bmi_dirs, bmi_maps),
-        }?;
-        Ok(cxx)
+        }
     }
 
     #[allow(clippy::too_many_arguments)]

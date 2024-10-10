@@ -238,6 +238,8 @@ impl<P, B> CppDepsAnalyzer<P, B> {
         Ok(None)
     }
 
+    // FIXME: handle extensions properly for different platforms
+    // FIXME: rewrite to prevent threads from hanging on error
     #[cfg(test)]
     pub(crate) fn validate_order<'i>(
         self,
@@ -249,7 +251,6 @@ impl<P, B> CppDepsAnalyzer<P, B> {
         for result in self.into_iter() {
             let dep_info = result?;
             if let Some(primary_output) = dep_info.get().primary_output.as_deref() {
-                // println!("output: {primary_output:?}");
                 // NOTE: the `dep_text` tests don't append the tempdir prefix (though maybe they should)
                 let primary_output = primary_output.strip_prefix(src_root).unwrap_or(primary_output);
                 if !expected_outputs.remove(primary_output) {

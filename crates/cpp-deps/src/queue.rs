@@ -25,7 +25,7 @@ pub(crate) struct TaskQueue<P, B> {
 impl<P, B> Drop for TaskQueue<P, B> {
     fn drop(&mut self) {
         while let Some(thread) = self.threads.pop() {
-            // thread.join().unwrap();
+            thread.join().unwrap();
         }
     }
 }
