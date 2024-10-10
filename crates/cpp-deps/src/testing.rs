@@ -64,8 +64,16 @@ pub fn build_script_env(out_dir: &Path) -> BoxResult<()> {
         .to_str()
         .ok_or_else(|| -> BoxError { "StringConversionFailure".into() })?;
     std::env::set_var("OPT_LEVEL", "3");
-    std::env::set_var("TARGET", "x86_64-unknown-linux-gnu");
-    std::env::set_var("HOST", "x86_64-unknown-linux-gnu");
     std::env::set_var("OUT_DIR", out_dir);
+    #[cfg(all(target_arch = "x86_64", target_os = "linux", target_env = "gnu"))]
+    {
+        std::env::set_var("TARGET", "x86_64-unknown-linux-gnu");
+        std::env::set_var("HOST", "x86_64-unknown-linux-gnu");
+    }
+    #[cfg(all(target_arch = "x86_64", target_os = "windows", target_env = "msvc"))]
+    {
+        std::env::set_var("TARGET", "x86_64-pc-windows-msvc");
+        std::env::set_var("HOST", "x86_64-pc-windows-msvc");
+    }
     Ok(())
 }

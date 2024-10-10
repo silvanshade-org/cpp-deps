@@ -110,5 +110,6 @@ where
 impl<P, B> TaskQueue<P, B> {
     pub(crate) fn shutdown(&mut self) {
         self.compile_tx = flume::bounded(0).0;
+        self.failure_rx = flume::bounded(0).1; // FIXME: allow collecting all errors
     }
 }

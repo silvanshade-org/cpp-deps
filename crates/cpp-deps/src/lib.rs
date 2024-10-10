@@ -1,4 +1,5 @@
 // TODO:
+// - verify files are c++ (or rather, accurately report errors when they are not)
 // - support header units
 // - support adding custom module mappings
 // - handle error propagation

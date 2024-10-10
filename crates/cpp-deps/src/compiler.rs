@@ -146,12 +146,15 @@ impl Compiler {
 enum CompilerFamily {
     Clang,
     Gcc,
+    Msvc,
 }
 impl CompilerFamily {
     fn bmi_file_ext(&self) -> &str {
         match self {
             CompilerFamily::Clang => "pcm",
             CompilerFamily::Gcc => "pcm",
+            // https://devblogs.microsoft.com/cppblog/using-cpp-modules-in-msvc-from-the-command-line-part-1/
+            CompilerFamily::Msvc => "ifc",
         }
     }
 
@@ -159,6 +162,8 @@ impl CompilerFamily {
         match self {
             CompilerFamily::Clang => "ddi",
             CompilerFamily::Gcc => "ddi",
+            // https://learn.microsoft.com/en-us/cpp/build/reference/scandependencies
+            CompilerFamily::Msvc => "ddi",
         }
     }
 
@@ -169,6 +174,7 @@ impl CompilerFamily {
         match self {
             CompilerFamily::Clang => self.dep_file_cmd_clang(cxx, src, dst),
             CompilerFamily::Gcc => self.dep_file_cmd_gcc(cxx, src, dst),
+            CompilerFamily::Msvc => self.dep_file_cmd_msvc(cxx, src, dst),
         }
     }
 
@@ -226,10 +232,26 @@ impl CompilerFamily {
         Ok(cxx)
     }
 
+    fn dep_file_cmd_msvc(
+        &self,
+        mut cxx: Command,
+        src: &r5::Utf8Path,
+        dst: &r5::Utf8Path,
+    ) -> Result<Command, InnerError> {
+        cxx.args(["/scanDependencies", dst.as_str()]);
+        // NOTE: it seems we can specify /interface even if not an interface without issue. The
+        // cl.exe compiler will correctly detect and report whether the input is actually an
+        // interface or not in the p1689 file. So it's easier to just unconditionally use the flag.
+        cxx.args(["/interface", "/Tp"]);
+        cxx.arg(src);
+        Ok(cxx)
+    }
+
     fn obj_file_ext(&self) -> &str {
         match self {
             CompilerFamily::Clang => "o",
             CompilerFamily::Gcc => "o",
+            CompilerFamily::Msvc => "obj",
         }
     }
 
@@ -251,6 +273,7 @@ impl CompilerFamily {
         match self {
             CompilerFamily::Clang => self.obj_file_cmd_clang(cxx, src, dst, dep_info, parent, bmi_dirs, bmi_maps),
             CompilerFamily::Gcc => self.obj_file_cmd_gcc(cxx, src, dst),
+            CompilerFamily::Msvc => self.obj_file_cmd_msvc(cxx, src, dst, dep_info),
         }
     }
 
@@ -311,6 +334,26 @@ impl CompilerFamily {
 
         Ok(cxx)
     }
+
+    fn obj_file_cmd_msvc(
+        &self,
+        mut cxx: Command,
+        src: &r5::Utf8Path,
+        dst: &r5::Utf8Path,
+        dep_info: &r5::DepInfo<'_>,
+    ) -> Result<Command, InnerError> {
+        cxx.args(["/Fo", dst.as_str()]);
+        if dep_info
+            .provides
+            .first()
+            .map(|provided| provided.is_interface)
+            .unwrap_or(false)
+        {
+            cxx.args(["/interface", "/Tp"]);
+        }
+        cxx.arg(src);
+        Ok(cxx)
+    }
 }
 #[cfg(feature = "cc")]
 impl TryFrom<&crate::vendor::cc::Tool> for CompilerFamily {
@@ -323,6 +366,9 @@ impl TryFrom<&crate::vendor::cc::Tool> for CompilerFamily {
         if tool.is_like_clang() {
             return Ok(CompilerFamily::Clang);
         }
+        if tool.is_like_msvc() {
+            return Ok(CompilerFamily::Msvc);
+        }
         Err(InnerError::new(InnerErrorKind::CompilerFamilyTryFromUnknownFamily))
     }
 }
@@ -332,10 +378,10 @@ mod test {
     use crate::testing::BoxResult;
 
     #[test]
-    fn compile() -> BoxResult<()> {
-        let paths = crate::testing::corpus::src_file::items()?;
-        let validate = crate::testing::corpus::src_file::validate_order(paths)?;
-        validate.run()
+    fn compile() {
+        let paths = crate::testing::corpus::src_file::items().unwrap();
+        let validate = crate::testing::corpus::src_file::validate_order(paths).unwrap();
+        validate.run().unwrap()
     }
 
     #[test]
