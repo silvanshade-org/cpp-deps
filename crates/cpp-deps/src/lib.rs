@@ -212,7 +212,7 @@ pub enum CppDepsItem<P, B> {
 
 pub struct CppDeps<P = r5::Utf8PathBuf, B = Vec<u8>> {
     #[cfg(feature = "cc")]
-    compiler: Arc<Compiler>,
+    pub(crate) compiler: Arc<Compiler>,
     parallelism: NonZeroUsize,
     cppdeps_tx: flume::Sender<CppDepsItem<P, B>>,
     cppdeps_rx: flume::Receiver<CppDepsItem<P, B>>,
@@ -233,9 +233,11 @@ where
             let compiler = Compiler::new(build)?;
             Arc::from(compiler)
         };
-        let parallelism = std::thread::available_parallelism()
-            .or(NonZeroUsize::try_from(1)
-                .map_err(|err| InnerError::new(InnerErrorKind::NonZeroUsizeTryFromUsize { err })))?;
+        // let parallelism = std::thread::available_parallelism()
+        //     .or(NonZeroUsize::try_from(1)
+        //         .map_err(|err| InnerError::new(InnerErrorKind::NonZeroUsizeTryFromUsize { err })))?;
+        let parallelism = NonZeroUsize::try_from(1)
+            .map_err(|err| InnerError::new(InnerErrorKind::NonZeroUsizeTryFromUsize { err }))?;
         Ok(CppDeps {
             #[cfg(feature = "cc")]
             compiler,

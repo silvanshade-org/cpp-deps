@@ -41,7 +41,7 @@ impl Compiler {
         mut path: r5::Utf8PathBuf,
         provides: &[r5::ProvidedModuleDesc<'_>],
     ) -> Option<r5::Utf8PathBuf> {
-        if self.tool.is_like_clang() {
+        if self.tool.is_like_clang() || self.tool.is_like_msvc() {
             for provided in provides {
                 let name = provided.desc.logical_name();
                 if self.module_name_is_dotted(&name) {
@@ -118,14 +118,21 @@ impl Compiler {
     fn compile(
         &self,
         _root: &r5::Utf8Path, // NOTE: use for error
-        _src: &r5::Utf8Path,  // NOTE: use for error
+        src: &r5::Utf8Path,   // NOTE: use for error
         dst: r5::Utf8PathBuf,
         mut cmd: Command,
     ) -> Result<r5::Utf8PathBuf, InnerError> {
-        let status = cmd
-            .status()
+        // println!(
+        //     "{}",
+        //     cmd.get_args()
+        //         .map(|arg| arg.to_string_lossy())
+        //         .collect::<Vec<_>>()
+        //         .join(" ")
+        // );
+        let output = cmd
+            .output()
             .map_err(|err| InnerError::new(InnerErrorKind::CommandStatus { err }))?;
-        if !status.success() {
+        if !output.status.success() {
             return Err(InnerError::new(InnerErrorKind::CommandCompilerNonZeroExit));
         }
         Ok(dst)
@@ -171,11 +178,12 @@ impl CompilerFamily {
         if let Some(dir) = dst.parent() {
             std::fs::create_dir_all(dir).map_err(|err| InnerError::new(InnerErrorKind::FsCreateDirAll { err }))?;
         }
-        match self {
+        let cxx = match self {
             CompilerFamily::Clang => self.dep_file_cmd_clang(cxx, src, dst),
             CompilerFamily::Gcc => self.dep_file_cmd_gcc(cxx, src, dst),
             CompilerFamily::Msvc => self.dep_file_cmd_msvc(cxx, src, dst),
-        }
+        }?;
+        Ok(cxx)
     }
 
     fn dep_file_cmd_clang(
@@ -270,11 +278,12 @@ impl CompilerFamily {
         } else {
             None
         };
-        match self {
+        let cxx = match self {
             CompilerFamily::Clang => self.obj_file_cmd_clang(cxx, src, dst, dep_info, parent, bmi_dirs, bmi_maps),
             CompilerFamily::Gcc => self.obj_file_cmd_gcc(cxx, src, dst),
-            CompilerFamily::Msvc => self.obj_file_cmd_msvc(cxx, src, dst, dep_info),
-        }
+            CompilerFamily::Msvc => self.obj_file_cmd_msvc(cxx, src, dst, dep_info, parent, bmi_dirs, bmi_maps),
+        }?;
+        Ok(cxx)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -341,8 +350,23 @@ impl CompilerFamily {
         src: &r5::Utf8Path,
         dst: &r5::Utf8Path,
         dep_info: &r5::DepInfo<'_>,
+        parent: Option<r5::Utf8PathBuf>,
+        bmi_dirs: &mut BTreeSet<Arc<r5::Utf8PathBuf>>,
+        bmi_maps: &[(DepInfoNameYoke, Arc<r5::Utf8PathBuf>)],
     ) -> Result<Command, InnerError> {
-        cxx.args(["/Fo", dst.as_str()]);
+        cxx.arg("/c");
+        cxx.args(["/Fo:", dst.as_str()]);
+        cxx.args(["/ifcOutput", dst.with_extension("ifc").as_str()]);
+
+        for dir in bmi_dirs.iter() {
+            cxx.args(["/ifcSearchDir", dir.as_str()]);
+        }
+
+        for (name, path) in bmi_maps {
+            let name = name.yoke.get();
+            cxx.args(["/reference", &format!("{name}={path}")]);
+        }
+
         if dep_info
             .provides
             .first()
@@ -351,7 +375,13 @@ impl CompilerFamily {
         {
             cxx.args(["/interface", "/Tp"]);
         }
+
         cxx.arg(src);
+
+        if let Some(dir) = parent {
+            bmi_dirs.insert(Arc::new(dir));
+        }
+
         Ok(cxx)
     }
 }
