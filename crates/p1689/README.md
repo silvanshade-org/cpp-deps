@@ -1,17 +1,3 @@
-<div align="center">
-  <h1><code>p1689</code></h1>
-  <p>
-    <strong>Data structures for representing p1689 C++ modules dependency files</strong>
-  </p>
-  <p style="margin-bottom: 0.5ex;">
-    <a href="https://silvanshade.github.io/cpp-deps/p1689"><img
-        src="https://img.shields.io/badge/docs-latest-blueviolet?logo=Read-the-docs&logoColor=white"
-        /></a>
-    <a href="https://github.com/silvanshade/cpp-deps/actions"><img
-        src="https://github.com/silvanshade/cpp-deps/workflows/ci/badge.svg"
-        /></a>
-    <a href="https://codecov.io/gh/silvanshade/cpp-deps"><img
-        src="https://codecov.io/gh/silvanshade/cpp-deps/branches/main/graph/badge.svg"
-        /></a>
-  </p>
-</div>
+# p1689
+
+Owned, `no_std`-compatible data model for P1689 revision 5 C++ module dependency files. Types round-trip through Serde without losing module requirements, paths, or lookup modes. The repository is [silvanshade-org/cpp-deps](https://github.com/silvanshade-org/cpp-deps); the companion `cpp-deps` crate uses this model to build named modules from a Cargo build script.

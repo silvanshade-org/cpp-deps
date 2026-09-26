@@ -1,173 +1,179 @@
+# <critical>
+# MUST preserve anchor-first CI: maximal sharing, no copied orchestration.
+# Reuse template anchors and parameterize compiler and image differences.
+# Keep GCC 16, Clang 22, quality, format, and workflow lint parallel.
+# </critical>
 name: ci
 
 on:
   push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
+    branches: [main]
+  pull_request: {}
+  merge_group:
+  workflow_dispatch:
+    inputs:
+      ci_image:
+        description: Published pinned GHCR image for a one-run pull check
+        required: false
+        type: string
 
 env:
+  CARGO_INCREMENTAL: 0
   CARGO_TERM_COLOR: always
-  # Set `RUST_NIGHTLY_TOOLCHAIN` once globally to silence linter. Overwritten in jobs.
-  # For context see https://github.com/github/vscode-github-actions/issues/96
-  RUST_NIGHTLY_TOOLCHAIN: nightly
+  # The same local-only tool exclusion is baked into the pinned CI image.
+  MISE_DISABLE_TOOLS: github:colbymchenry/codegraph,github:max-sixty/worktrunk,github:cli/cli,github:j178/prek,github:nektos/act,github:woodruffw/zizmor,npm:@commitlint/cli
+
+permissions:
+  contents: read
 
 jobs:
-  cargo-careful:
-    runs-on: ubuntu-latest
+  template:
+    if: false
+    runs-on: &linux ubuntu-24.04
+    permissions: &image-read-permissions
+      contents: read
+      packages: read
     steps:
-      - uses: actions/checkout@v4
-      - run: echo "RUST_NIGHTLY_TOOLCHAIN=$(awk '/^channel\s*=\s*".*"$/ { print gensub(/"(.*)"/, "\\1", "g", $3); }' rust-toolchain.toml)" >> $GITHUB_ENV
-      - uses: dtolnay/rust-toolchain@stable
+      - &checkout
+        name: checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          toolchain: ${{ env.RUST_NIGHTLY_TOOLCHAIN }}
-      - run: |
-          mkdir -p .github/caching
-          cargo search cargo-careful | awk '/^cargo-careful/ { print gensub(/"(.*)"/, "\\1", "g", $3); }' > .github/caching/cargo-careful.lock
-      - id: cache-cargo-careful
-        uses: actions/cache@v4
+          persist-credentials: false
+      - &checkout-history
+        name: checkout full history for changelog
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: ${{ runner.tool_cache }}/cargo-careful/bin
-          key: cargo-careful-bin-${{ hashFiles('.github/caching/cargo-careful.lock') }}
-      - if: steps.cache-cargo-careful.outputs.cache-hit != 'true'
-        run: cargo install --root ${{ runner.tool_cache }}/cargo-careful --force cargo-careful
-      - run: echo "${{ runner.tool_cache }}/cargo-careful/bin" >> $GITHUB_PATH
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo +${{ env.RUST_NIGHTLY_TOOLCHAIN }} careful test --features="full"
+          persist-credentials: false
+          fetch-depth: 0
+      - &setup-cpp
+        name: set up GCC 16 on bare runners
+        uses: ./.github/actions/setup-cpp # zizmor: ignore[self-repository]
+        with:
+          install: ${{ needs.image-ref.outputs.image == '' }}
+      - &setup-rust
+        name: set up pinned Rust toolchain and cache
+        uses: ./.github/actions/setup-rust # zizmor: ignore[self-repository]
+        with:
+          install-toolchain: ${{ needs.image-ref.outputs.image == '' }}
+          cache-save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.job == 'clang-test' }}
+          cache-workspace-crates: "true"
+      - &setup-mise
+        name: set up pinned tools
+        uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3
+        with:
+          version: "2026.9.14"
+          install: ${{ needs.image-ref.outputs.image == '' }}
+          cache_save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.job == 'clang-test' }}
 
-  cargo-deny:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        checks:
-          - advisories
-          - bans licenses sources
-    continue-on-error: ${{ matrix.checks == 'advisories' }}
+  image-ref:
+    runs-on: *linux
+    outputs:
+      image: ${{ steps.ref.outputs.image }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - uses: EmbarkStudios/cargo-deny-action@v1
-        with:
-          command: check ${{ matrix.checks }}
-
-  cargo-fmt:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: echo "RUST_NIGHTLY_TOOLCHAIN=$(awk '/^channel\s*=\s*".*"$/ { print gensub(/"(.*)"/, "\\1", "g", $3); }' rust-toolchain.toml)" >> $GITHUB_ENV
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_NIGHTLY_TOOLCHAIN }}
-          components: rustfmt
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo +${{ env.RUST_NIGHTLY_TOOLCHAIN }} fmt --all -- --check
-
-  cargo-clippy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: echo "RUST_NIGHTLY_TOOLCHAIN=$(awk '/^channel\s*=\s*".*"$/ { print gensub(/"(.*)"/, "\\1", "g", $3); }' rust-toolchain.toml)" >> $GITHUB_ENV
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_NIGHTLY_TOOLCHAIN }}
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - uses: giraffate/clippy-action@v1
-        with:
-          reporter: "github-pr-review"
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          clippy_flags: -- -D warnings
-      - run: cargo +${{ env.RUST_NIGHTLY_TOOLCHAIN }} clippy --all-features -- -D warnings
-
-  cargo-docs:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo doc --no-deps --features="full"
-      - uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./target/doc
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-  cargo-check:
-    strategy:
-      matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-        features:
-          - --no-default-features
-          -
-          - --all-features
-          - --features="parsing"
-          - --features="serde"
-          - --features="serde,deserialize"
-          - --features="serde,serialize"
-          - --features="benchmark"
-          - --features="full"
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo check --all-targets ${{ matrix.features }}
-
-  cargo-test:
-    strategy:
-      matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test --all-targets --all-features
-
-  cargo-test-coverage:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: echo "RUST_NIGHTLY_TOOLCHAIN=$(awk '/^channel\s*=\s*".*"$/ { print gensub(/"(.*)"/, "\\1", "g", $3); }' rust-toolchain.toml)" >> $GITHUB_ENV
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_NIGHTLY_TOOLCHAIN }}
-      - run: |
-          mkdir -p .github/caching
-          cargo search cargo-tarpaulin | awk '/^cargo-tarpaulin/ { print gensub(/"(.*)"/, "\\1", "g", $3); }' > .github/caching/cargo-tarpaulin.lock
-      - id: cache-cargo-tarpaulin
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.tool_cache }}/cargo-tarpaulin/bin
-          key: cargo-tarpaulin-bin-${{ hashFiles('.github/caching/cargo-tarpaulin.lock') }}
-      - if: steps.cache-cargo-tarpaulin.outputs.cache-hit != 'true'
-        run: cargo install --root ${{ runner.tool_cache }}/cargo-tarpaulin --force cargo-tarpaulin
-      - run: echo "${{ runner.tool_cache }}/cargo-tarpaulin/bin" >> $GITHUB_PATH
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo +${{ env.RUST_NIGHTLY_TOOLCHAIN }} tarpaulin --exclude-files="corpus/*" --exclude-files="crates/p1689/tests/*" --package p1689 --features="full" --verbose --timeout 120 --out Xml
-      - uses: codecov/codecov-action@v4
+      - id: ref
+        name: relay optional prebuilt image to container jobs
         env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-        with:
-          fail_ci_if_error: true
+          CPP_DEPS_CI_IMAGE: ${{ inputs.ci_image || vars.CPP_DEPS_CI_IMAGE }}
+        run: echo "image=$CPP_DEPS_CI_IMAGE" >> "$GITHUB_OUTPUT"
 
-  cargo-miri:
-    runs-on: ubuntu-latest
+  changes:
+    runs-on: *linux
+    outputs:
+      rust: ${{ github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || steps.filter.outcome != 'success' || steps.filter.outputs.rust == 'true' }}
     steps:
-      - uses: actions/checkout@v4
-      - run: echo "RUST_NIGHTLY_TOOLCHAIN=$(awk '/^channel\s*=\s*".*"$/ { print gensub(/"(.*)"/, "\\1", "g", $3); }' rust-toolchain.toml)" >> $GITHUB_ENV
-      - uses: dtolnay/rust-toolchain@stable
+      - *checkout-history
+      - id: filter
+        if: github.event_name != 'merge_group' && github.event_name != 'workflow_dispatch'
+        name: retain Rust and C++ gates for code or toolchain changes
+        continue-on-error: true
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: git diff --name-only --no-renames "$BASE_SHA" HEAD | jq -R -s -r 'split("\n") | any(.[]; test("^(crates/|[.]github/|[.]config/|Cargo[.]|mise[.]|rust-toolchain[.]toml$|clippy[.]toml$|deny[.]toml$)")) | "rust=\(.)"' >> "$GITHUB_OUTPUT"
+
+  clang-test:
+    needs: [image-ref, changes]
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: *linux
+    container: ${{ needs.image-ref.outputs.image }} # zizmor: ignore[unpinned-images]
+    permissions: *image-read-permissions
+    env:
+      CXX: clang++
+    steps:
+      - *checkout
+      - *setup-rust
+      - *setup-mise
+      - name: verify Clang 22
+        run: clang++ --version
+      - name: verify matching dependency scanner
+        run: clang-scan-deps --version
+      - name: run Rust-linked Clang 22 module and model tests
+        run: mise run check:tests
+
+  gcc-test:
+    needs: [image-ref, changes]
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: *linux
+    container: ${{ needs.image-ref.outputs.image }} # zizmor: ignore[unpinned-images]
+    permissions: *image-read-permissions
+    env:
+      CXX: ${{ needs.image-ref.outputs.image == '' && 'g++-16' || 'g++' }}
+    steps:
+      - *checkout
+      - *setup-cpp
+      - *setup-rust
+      - *setup-mise
+      - name: verify GCC 16
+        run: '"$CXX" --version'
+      - name: run Rust-linked GCC 16 module and model tests
+        run: mise run check:tests
+
+  quality:
+    needs: [image-ref, changes]
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: *linux
+    container: ${{ needs.image-ref.outputs.image }} # zizmor: ignore[unpinned-images]
+    permissions: *image-read-permissions
+    env:
+      CXX: clang++
+    steps:
+      - *checkout
+      - *setup-rust
+      - *setup-mise
+      - name: check every workspace target
+        run: mise run check:types
+      - name: check strict Clippy wall
+        run: mise run check:lint
+      - name: check private-item rustdoc
+        run: mise run check:doc
+
+  format:
+    needs: image-ref
+    runs-on: *linux
+    container: ${{ needs.image-ref.outputs.image }} # zizmor: ignore[unpinned-images]
+    permissions: *image-read-permissions
+    env:
+      CXX: clang++
+    steps:
+      - *checkout-history
+      - name: trust runner-mounted workspace for Git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - *setup-rust
+      - *setup-mise
+      - name: refuse conflict markers
+        run: mise run check:conflict-markers
+      - name: verify shared baseline pin
+        run: mise run check:baseline-hash
+      - name: verify changelog, format and file budgets
+        run: mise run treefmt:check
+
+  workflow-lint:
+    runs-on: *linux
+    steps:
+      - *checkout
+      - name: install pinned zizmor
+        uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2.87.20
         with:
-          toolchain: ${{ env.RUST_NIGHTLY_TOOLCHAIN }}
-          components: miri
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo +${{ env.RUST_NIGHTLY_TOOLCHAIN }} miri test --features="full"
+          tool: zizmor@1.30.1
+      - name: audit workflows
+        run: zizmor .github/workflows

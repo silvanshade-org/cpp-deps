@@ -1,0 +1,26 @@
+name: setup GCC 16
+# The published CI image already contains GCC 16. On the first main/PR run,
+# Noble's toolchain PPA supplies the same major version to the bare runner.
+description: Install GCC 16 and G++ 16 on a Linux runner without the CI image
+inputs:
+  install:
+    description: Install on the bare runner only
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - if: ${{ inputs.install == 'true' }}
+      shell: bash
+      run: sudo apt-get update
+    - if: ${{ inputs.install == 'true' }}
+      shell: bash
+      run: sudo apt-get install -y --no-install-recommends software-properties-common
+    - if: ${{ inputs.install == 'true' }}
+      shell: bash
+      run: sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+    - if: ${{ inputs.install == 'true' }}
+      shell: bash
+      run: sudo apt-get update
+    - if: ${{ inputs.install == 'true' }}
+      shell: bash
+      run: sudo apt-get install -y --no-install-recommends gcc-16 g++-16
