@@ -4,6 +4,10 @@ Notable changes to cpp-deps are recorded here.
 
 ## Unreleased
 
+### Features
+
+- _(core)_ Build C++20 modules for Cargo (#7)
+
 ### Legacy
 
 - Add .gitignore
