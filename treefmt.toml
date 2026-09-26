@@ -1,0 +1,96 @@
+#:tombi toml-version = "v1.1.0"
+#:schema https://www.schemastore.org/treefmt.json
+
+# Build output is gitignored, but the explicit exclude keeps `treefmt` from
+# traversing it in environments where the git-walker's `.git` pointer is
+# dangling and the implicit skip does not apply.
+# delta: the exclude list below carries the three classes every consumer needs —
+# build output, verbatim-mandated content, and the hash-pinned shared page — plus
+# one project-specific class as an example. A consumer replaces the compiletest
+# fixture entries with its own generated, vendored, or fixture trees.
+excludes = [
+  "target/**",
+  # Repository fixtures are authored and formatted as source, not generated diagnostics.
+  # Verbatim-mandated content: license text and every resolver's lockfile. A
+  # formatter that rewrites a lockfile fights the resolver that owns it, and the
+  # two rewrite each other on every run. `mise.lock` is here because the
+  # vendored `mise.toml` sets `lockfile = true`, so every consumer tracks one;
+  # per-project lockfiles in other formats stay consumer deltas.
+  "LICENSE",
+  "**/LICENSE.*.txt",
+  "Cargo.lock",
+  "mise.lock",
+  # The tool's own cache, written at the root of every tree rumdl runs in.
+  # Gitignoring is not scoping: the excludes are explicit.
+  ".rumdl_cache",
+  # The shared baseline is byte-identical across repos and pinned by content
+  # hash: a formatter that rewrites one byte here breaks the pin.
+  "docs/agents/baseline.md",
+]
+
+# delta: a formatter entry and its tool pin move together. treefmt refuses to
+# start when a configured formatter's command is absent — it fails initialising
+# the composite formatter, rather than skipping that entry — so a consumer that
+# drops a pin under `mise.toml`'s tool-set marker must drop the matching entry
+# here in the same change, and a consumer with no surface for a formatter drops
+# both. The entries below are the union: Rust, markdown, TOML, JS and JSON,
+# spelling, file size, and shell.
+# Generate release notes before Markdown formatting; unchanged bytes are not rewritten.
+[formatter."changelog-generate"]
+priority = -3
+command = "mise"
+options = ["run", "changelog:render"]
+includes = ["CHANGELOG.md"]
+no-positional-arg-support = true
+
+[formatter.rustfmt]
+command = "rustfmt"
+options = ["--edition", "2024"]
+includes = ["*.rs"]
+
+# The mutating formatter takes the lower priority so `fmt` completes before
+# `check` when both cover the same markdown set.
+[formatter."rumdl-format"]
+priority = 0
+command = "rumdl"
+options = ["fmt"]
+includes = ["*.md"]
+
+[formatter."rumdl-verify"]
+priority = 1
+command = "rumdl"
+options = ["check"]
+includes = ["*.md"]
+
+[formatter."tombi-format"]
+priority = 0
+command = "tombi"
+options = ["format"]
+includes = ["*.toml"]
+
+[formatter."tombi-lint"]
+priority = 1
+command = "tombi"
+options = ["lint", "--error-on-warnings"]
+includes = ["*.toml"]
+
+[formatter.oxfmt]
+command = "oxfmt"
+options = ["--config", ".oxfmtrc.json"]
+includes = ["*.json", "*.jsonc", "*.yaml", "*.yml", "*.mjs"]
+
+[formatter.typos]
+command = "typos"
+options = ["--write-changes", "--force-exclude"]
+includes = ["*"]
+
+# Check-only: doc-sprawl size budgets.
+[formatter.sizelint]
+command = "sizelint"
+options = ["check"]
+includes = ["*"]
+
+# Check-only: shell lint at default severity (style included); a per-line directive with its reason is the only sanctioned suppression.
+[formatter.shellcheck]
+command = "shellcheck"
+includes = ["*.sh"]

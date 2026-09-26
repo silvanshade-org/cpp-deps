@@ -1,0 +1,57 @@
+#:tombi toml-version = "v1.0.0"
+#:schema https://mise.jdx.dev/schema/mise-task.json
+
+# Git writes conflict markers as EXACTLY seven marker characters followed by
+# end-of-line or whitespace plus a label (`<<<<<<< HEAD`, bare `=======`).
+# Anchoring on `([[:space:]]|$)` keeps real markers matched while rejecting
+# longer decorative runs -- setext underlines and `====` delimiter rules are
+# not conflicts. The `:/` pathspec scopes the scan to tracked files under the
+# repository root whatever directory the hook runs from.
+["check:conflict-markers"]
+description = "Detect unresolved Git conflict markers in tracked files"
+run = """
+if git grep -nIE '^(<<<<<<<|=======|>>>>>>>|\\|\\|\\|\\|\\|\\|\\|)([[:space:]]|$)' -- ':/'; then
+  echo 'conflict marker check FAILED: unresolved Git conflict markers found' >&2
+  exit 1
+fi
+echo 'conflict marker check OK: no conflict markers in tracked files'
+"""
+
+# The pin is `docs/agents/baseline.sha256` beside the page, one `sha256sum` check
+# line copied with it. macOS ships `sha256sum` as `/sbin/sha256sum`.
+["check:baseline-hash"]
+description = "Check the shared baseline page against the pin beside it"
+run = "sha256sum -c docs/agents/baseline.sha256"
+
+# The private-item rustdoc gate, ported from the prototype's merge wall.
+# `RUSTDOCFLAGS="-D warnings"` makes every rustdoc lint fatal for the targets
+# rustdoc reads (library targets; test-target doc comments are invisible to
+# `cargo doc` by construction). Every workspace member is included. An
+# external Dylint library is built in its own repository, not as a consumer
+# workspace member. The clippy wall's `missing_docs_in_private_items`
+# supplies the missing-docs half; this gate supplies the rustdoc-lint half.
+["check:doc"]
+description = "Check workspace private-item rustdoc with intra-doc links denied"
+run = """
+RUSTDOCFLAGS="-D warnings"
+export RUSTDOCFLAGS
+cargo doc --workspace --no-deps --document-private-items
+"""
+
+["check:types"]
+description = "Check every workspace target"
+run = "cargo check --workspace --all-targets"
+
+["check:lint"]
+description = "Enforce the workspace lint wall"
+run = "cargo clippy --workspace --all-targets -- --deny warnings"
+
+["check:tests"]
+description = "Run all workspace tests"
+run = "cargo nextest run --workspace"
+
+# Fan out to every check:* task; a new check:* task is picked up
+# without touching this one.
+[check]
+description = "Run all check:* tasks"
+depends = ["check:*"]

@@ -1,0 +1,15 @@
+[package]
+name = "module-smoke"
+version.workspace = true
+edition.workspace = true
+description = "End-to-end C++20 module build-script exercise"
+repository.workspace = true
+license.workspace = true
+publish = false
+
+[build-dependencies]
+cc.workspace = true
+cpp-deps = { path = "../cpp-deps" }
+
+[lints]
+workspace = true

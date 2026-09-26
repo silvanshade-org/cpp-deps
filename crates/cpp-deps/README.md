@@ -1,6 +1,3 @@
-<div align="center">
-  <h1><code>cpp-deps</code></h1>
-  <p>
-    <strong>A library for processing p1689 C++ modules dependency files</strong>
-  </p>
-</div>
+# cpp-deps
+
+Cargo build-script library for scanning and compiling C++20 named modules. The [repository README](../../README.md) gives a complete build-script example and the supported compiler matrix. Source and issue tracker: [silvanshade-org/cpp-deps](https://github.com/silvanshade-org/cpp-deps).
