@@ -15,12 +15,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     modules
         .source("src/consumer.cpp")
         .source("src/interface.cppm")
-        .source("src/part.cppm");
+        .source("src/part.cppm")
+        .source("src/detail.cppm");
+    // cpp-deps watches the sources above; watch the headers they include.
+    println!("cargo:rerun-if-changed=include");
     let output = modules.compile()?;
 
     let mut archive = cc::Build::new();
     archive.cpp(true).objects(&output.objects).compile("my_modules");
-    // output.interfaces maps logical names (including partitions) to BMI paths.
+    // output.interfaces maps logical names (including interface and internal
+    // partitions) to BMI paths.
     Ok(())
 }
 ```
@@ -29,4 +33,4 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Clang 22 scans through `clang-scan-deps -format=p1689` and builds interfaces in one pass using `-fmodule-output`. The scanner is the one the compiler reports with `-print-prog-name=clang-scan-deps`, then the one beside the compiler, then `clang-scan-deps` on `PATH`; `.scanner(path)` selects a different binary. Every scan also passes the compiler's own `-print-resource-dir`, so a shim or wrapper script as `CXX` still finds Clang's builtin headers. GCC 16 scans with `-fdeps-format=p1689r5` and uses a mapper file in `OUT_DIR`. Linux CI runs both families. The MSVC path is retained but not a Linux CI gate. Only named modules are supported; header-unit imports return `UnsupportedLookup`. Build scripts should emit their own `cargo:rerun-if-changed` markers for headers that affect the modules.
 
-The `module-smoke` workspace crate builds a partition, interface, implementation, and importer, archives their objects, and asserts the linked C ABI values from a Rust test. To exercise both supported compiler lanes locally, run `CXX=clang++ mise exec -- cargo test --workspace` and `CXX=g++ mise exec -- cargo test --workspace` with Clang 22 (and its scanner) and GCC 16 installed.
+The `module-smoke` workspace crate builds an interface partition, an internal partition, an interface, an implementation, and an importer, archives their objects, and asserts the linked C ABI values from a Rust test. To exercise both supported compiler lanes locally, run `CXX=clang++ mise exec -- cargo test --workspace` and `CXX=g++ mise exec -- cargo test --workspace` with Clang 22 (and its scanner) and GCC 16 installed.

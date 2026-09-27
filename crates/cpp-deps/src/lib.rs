@@ -321,6 +321,7 @@ mod tests
             source: name.into(),
             object: name.into(),
             provides: Vec::new(),
+            internal_partition: false,
             requires: Vec::new(),
         });
         let (first_sender, first_receiver) = mpsc::channel();

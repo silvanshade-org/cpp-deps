@@ -14,12 +14,20 @@ fn main() -> Result<(), Box<dyn core::error::Error>>
         .source("src/implementation.cpp")
         .source("src/interface.cppm")
         .source("src/part.cppm")
+        .source("src/detail.cppm")
         .parallelism(parallelism);
+    // cpp-deps watches the registered sources; headers they include are the
+    // caller's to watch.
+    println!("cargo:rerun-if-changed=include");
     let output = modules.compile()?;
-    assert_eq!(output.interfaces.len(), 2, "partition and interface BMIs");
+    assert_eq!(
+        output.interfaces.len(),
+        3,
+        "interface, interface-partition, and internal-partition BMIs"
+    );
     for (module, path) in &output.interfaces {
         assert!(
-            matches!(module.as_ref(), "sample" | "sample:part"),
+            matches!(module.as_ref(), "sample" | "sample:part" | "sample:detail"),
             "unexpected module name: {}",
             module.as_ref()
         );
