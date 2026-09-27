@@ -1,2 +1,7 @@
 import sample;
-extern "C" int module_answer() { return answer(); }
+
+extern "C" auto
+module_answer() -> int
+{
+  return answer();
+}

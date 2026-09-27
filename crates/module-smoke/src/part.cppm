@@ -1,2 +1,7 @@
 export module sample:part;
-export int part_value() { return 17; }
+
+export auto
+part_value() -> int
+{
+  return 17;
+}

@@ -20,9 +20,9 @@ One toolchain for the whole workspace, pinned in `rust-toolchain.toml`; every lo
 
 `mise run check` fans out to every `check:*` task, so a new gate joins the wall by taking a `check:` name and nothing else.
 
-A workspace consuming `rust-workflow` loads its compiler plugin through `[[workspace.metadata.dylint.libraries]]`: the Git source, a full 40-hex `rev`, and `pattern = "crates/workflow-dylint"`. `mise run workflow:install` reads that same revision and runs `cargo install --git --rev --locked` for `rust-workflow-gates`, installed under `target/workflow-tools`. Neither workflow crate is a Cargo dependency or workspace member of the consumer.
+A workspace consuming `gandr-lang/quenchant`'s policy loads its compiler plugin through `[[workspace.metadata.dylint.libraries]]`: the Git source, a full 40-hex `rev`, and `pattern = "crates/quenchant-dylints"`. `mise run workflow:install` reads that same revision and runs `cargo install --git --rev --locked` for `quenchant-gates`, installed under `target/workflow-tools`. Neither tool crate is a Cargo dependency or workspace member of the consumer; quenchant's library crates, such as `quenchant-shape`, are ordinary dependencies.
 
-The consumer runs `mise run check:dylint`, which sets `CARGO_INCREMENTAL=0` and invokes `cargo dylint --lib rust_workflow_dylint --no-deps -- --workspace --all-targets`. `check:contracts` and `check:witnesses` depend on the pinned installer and invoke the binary with `--manifest-path Cargo.toml`. Their explicit manifest names the workspace being checked; an installed binary must never infer it from its source checkout. `check:publish` rejects workflow packages anywhere in Cargo's resolved package graph, preserving the future publication boundary.
+The consumer runs `mise run check:dylint`, which sets `CARGO_INCREMENTAL=0` and invokes `cargo dylint --lib quenchant_dylints --no-deps -- --workspace --all-targets`. `check:anodized` and `check:witnesses` depend on the pinned installer and invoke the binary with `--manifest-path Cargo.toml`. Their explicit manifest names the workspace being checked; an installed binary must never infer it from its source checkout. `check:publish` rejects the two tool packages anywhere in Cargo's resolved package graph, preserving the future publication boundary.
 
 A library producer owns its plugin's unit/UI suites and Clippy pass: run those from the package directory where its linker configuration applies. Consumers run their entire workspace suite without a workflow-package exclusion; they do not repeat the producer's UI fixtures. Both roles require the pinned `cargo-dylint` and `dylint-link`, plus the library-compatible `rustc-dev` and `llvm-tools` components. After a compiler or policy upgrade, clear `~/.dylint_drivers` and `target/dylint`, then rerun the complete build, test, Clippy, rustdoc, formatting, and policy wall. A workspace adopting no Dylint policy runs its ordinary Clippy wall alone.
 
@@ -62,7 +62,7 @@ A new tree's hosted CI MUST open in gandr's shape, minus lanes that do not apply
 | CI filter | `mise run check:ci-scripts` | a regression in the changed-categories filter |
 | CI pins | `mise run check:ci-pins` | a workflow tool pin drifted from its source of truth |
 | external Dylint policy | `mise run check:dylint` | a compiler-plugin finding in the consumer workspace |
-| contracts feature graph | `mise run check:contracts` | contract-defeating features in the resolved build graph |
+| specification state | `mise run check:anodized` | an unresolved or non-enforcing specification configuration in the workspace |
 | adequacy witnesses | `mise run check:witnesses` | missing, ambiguous, or wrong-target runnable witnesses |
 | publication surface | `mise run check:publish` | unpublished workflow tools entering the Cargo dependency graph |
 | formatting, size budgets, shell lint | `mise run treefmt:check` | a file the formatter would rewrite, an over-budget page, a shellcheck finding |

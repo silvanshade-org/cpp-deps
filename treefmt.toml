@@ -43,6 +43,12 @@ options = ["run", "changelog:render"]
 includes = ["CHANGELOG.md"]
 no-positional-arg-support = true
 
+[formatter."clang-format"]
+priority = 0
+command = "mise"
+options = ["exec", "--", "clang-format", "-i", "--style=file"]
+includes = ["*.cppm", "*.cpp", "*.hpp"]
+
 [formatter.rustfmt]
 command = "rustfmt"
 options = ["--edition", "2024"]

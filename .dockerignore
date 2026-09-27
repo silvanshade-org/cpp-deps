@@ -1,0 +1,11 @@
+*
+!mise.toml
+!mise.lock
+!rust-toolchain.toml
+!.github/
+!.github/docker/
+!.github/docker/ci.Dockerfile
+!.mise/
+!.mise/locks/
+!.mise/locks/npm-oxfmt/
+!.mise/locks/npm-oxfmt/**

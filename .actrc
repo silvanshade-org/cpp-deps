@@ -3,6 +3,8 @@
 # without the multi-GB "full" variant; multi-arch, so Docker pulls the
 # arm64 build natively on Apple Silicon hosts (no QEMU tax).
 -P ubuntu-latest=catthehacker/ubuntu:act-latest
+# CI jobs use the pinned 24.04 label; map it to the same local runner.
+-P ubuntu-24.04=catthehacker/ubuntu:act-latest
 # Reuse the already-pulled image across iteration runs; drop this flag
 # (or pass --pull on the command line) to refresh it.
 --pull=false

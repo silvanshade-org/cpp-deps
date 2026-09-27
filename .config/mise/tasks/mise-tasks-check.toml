@@ -46,12 +46,24 @@ run = "cargo check --workspace --all-targets"
 description = "Enforce the workspace lint wall"
 run = "cargo clippy --workspace --all-targets -- --deny warnings"
 
+["lint:cpp"]
+description = "Audit every C++ module translation unit with pinned clang-tidy"
+run = "bash scripts/ci/lint-cpp.sh"
+
 ["check:tests"]
-description = "Run all workspace tests"
-run = "cargo nextest run --workspace"
+description = "Run all workspace tests with CI JUnit output"
+run = "cargo nextest run --profile ci --workspace --all-targets"
 
 # Fan out to every check:* task; a new check:* task is picked up
 # without touching this one.
+["check:ci-pins"]
+description = "Check workflow and image tool pins for drift"
+run = "sh scripts/ci/check-pins.sh"
+
+["check:ci-scripts"]
+description = "Exercise fail-open CI path filtering against isolated Git histories"
+run = "bash scripts/ci/test-changed-categories.sh"
+
 [check]
 description = "Run all check:* tasks"
 depends = ["check:*"]
