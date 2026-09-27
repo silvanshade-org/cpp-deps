@@ -1,3 +1,0 @@
-[submodule "corpus/gcc"]
-	path = corpus/gcc
-	url = https://github.com/gcc-mirror/gcc
