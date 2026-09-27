@@ -18,6 +18,7 @@ Notable changes to cpp-deps are recorded here.
 ### Continuous Integration
 
 - _(ci)_ Align module CI with shared pattern (#9)
+- _(ci)_ Stop Dependabot version-update PRs (#10)
 
 ### Maintenance
 
