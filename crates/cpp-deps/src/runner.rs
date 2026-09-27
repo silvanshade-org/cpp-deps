@@ -379,15 +379,20 @@ pub fn scan_unit(
     else {
         return Err(BuildError::InvalidRules { source });
     };
+    if rule.provides.len() > 1 {
+        return Err(BuildError::MultipleInterfaces { source });
+    }
+    // An internal partition (`module m:part;`) provides a module that other
+    // units of `m` import, but is not an interface unit; it still needs a BMI.
+    let internal_partition = rule
+        .provides
+        .first()
+        .is_some_and(|module| !module.is_interface.0);
     let provides: Vec<_> = rule
         .provides
         .into_iter()
-        .filter(|module| module.is_interface.0)
         .map(|module| module.desc.logical_name)
         .collect();
-    if provides.len() > 1 {
-        return Err(BuildError::MultipleInterfaces { source });
-    }
     let mut requires = Vec::with_capacity(rule.requires.len());
     for required in rule.requires {
         if required.lookup_method != LookupMethod::ByName {
@@ -402,6 +407,7 @@ pub fn scan_unit(
         source,
         object,
         provides,
+        internal_partition,
         requires,
     })
 }
@@ -568,7 +574,12 @@ pub fn compile_unit(
                         source: unit.source.clone(),
                     });
                 };
-                command.arg("/interface");
+                command.arg(if unit.internal_partition {
+                    "/internalPartition"
+                }
+                else {
+                    "/interface"
+                });
                 command.arg("/ifcOutput").arg(path);
             }
             command

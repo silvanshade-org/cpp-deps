@@ -14,8 +14,12 @@ pub struct Unit
     pub source: PathBuf,
     /// Linkable object path under `OUT_DIR`.
     pub object: PathBuf,
-    /// Interfaces emitted by the translation unit.
+    /// Modules emitted by the translation unit: at most one, either an
+    /// interface or an internal partition.
     pub provides: Vec<ModuleName>,
+    /// Whether the provided module is an internal partition (`module m:p;`)
+    /// rather than an interface unit.
+    pub internal_partition: bool,
     /// Direct P1689 imports of the translation unit.
     pub requires: Vec<ModuleName>,
 }
@@ -182,6 +186,7 @@ mod tests
                 source: PathBuf::from($source),
                 object: PathBuf::from(concat!($source, ".o")),
                 provides: vec![$(ModuleName(String::from($provided))),*],
+                internal_partition: false,
                 requires: vec![$(ModuleName(String::from($required))),*],
             }
         };
