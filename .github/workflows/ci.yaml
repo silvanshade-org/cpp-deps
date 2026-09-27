@@ -109,6 +109,15 @@ jobs:
         run: clang-scan-deps --version
       - name: run Rust-linked Clang 22 module and model tests
         run: mise run check:tests
+      # A shim or wrapper hides Clang's resource directory from the scanner,
+      # which then misses builtin headers such as stddef.h.
+      - name: build modules through a compiler wrapper script
+        run: |
+          wrapper="$RUNNER_TEMP/wrapped-cxx/clang++"
+          mkdir -p "$(dirname "$wrapper")"
+          printf '#!/bin/sh\nexec %s "$@"\n' "$(command -v clang++)" > "$wrapper"
+          chmod +x "$wrapper"
+          CXX="$wrapper" cargo test -p module-smoke
 
   gcc-test:
     needs: [image-ref, changes]
