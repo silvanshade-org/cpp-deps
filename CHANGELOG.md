@@ -6,7 +6,17 @@ Notable changes to cpp-deps are recorded here.
 
 ### Features
 
-- _(core)_ Build C++20 modules for Cargo (#7)
+- _(core)_ Build C++20 modules for Cargo
+
+### Bug Fixes
+
+- _(ci)_ Install pinned Clang C++ and scanner
+- _(core)_ Scan with the compiler's own resource directory
+- _(core)_ Build internal module partitions
+
+### Maintenance
+
+- _(repo)_ Drop the gcc corpus submodule (#8)
 
 ### Legacy
 
