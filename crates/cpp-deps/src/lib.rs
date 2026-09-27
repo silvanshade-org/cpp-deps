@@ -196,15 +196,7 @@ impl ModuleBuild
             .map_err(BuildError::Compiler)?;
         let kind = CompilerKind::from_tool(&tool)?;
         let scanner = match kind {
-            | CompilerKind::Clang => Scanner::Clang(self.scanner.unwrap_or_else(|| {
-                let sibling = tool.path().with_file_name("clang-scan-deps");
-                if sibling.is_absolute() && !sibling.is_file() {
-                    PathBuf::from("clang-scan-deps")
-                }
-                else {
-                    sibling
-                }
-            })),
+            | CompilerKind::Clang => runner::clang_scanner(&tool, self.scanner)?,
             | CompilerKind::Gcc | CompilerKind::Msvc => Scanner::Native,
         };
 
@@ -403,6 +395,16 @@ pub enum BuildError
         /// Compiler executable.
         compiler: PathBuf,
     },
+    /// The compiler could not answer a query about its own installation.
+    CompilerQuery
+    {
+        /// Compiler executable.
+        compiler: PathBuf,
+        /// Query flag, such as `-print-resource-dir`.
+        query: &'static str,
+        /// Compiler standard error.
+        stderr: String,
+    },
     /// Scanner and compiler families were configured inconsistently.
     InvalidCompilerConfiguration,
     /// An internal graph index or dependency count was inconsistent.
@@ -513,6 +515,15 @@ impl fmt::Display for BuildError
             | Self::UnsupportedCompiler { ref compiler } => {
                 write!(f, "unsupported module compiler {}", compiler.display())
             },
+            | Self::CompilerQuery {
+                ref compiler,
+                query,
+                ref stderr,
+            } => write!(
+                f,
+                "{} could not answer {query}: {stderr}",
+                compiler.display()
+            ),
             | Self::InvalidCompilerConfiguration => {
                 write!(f, "scanner or mapper does not match compiler family")
             },

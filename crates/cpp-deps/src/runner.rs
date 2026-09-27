@@ -1,5 +1,6 @@
 use alloc::collections::BTreeMap;
 use std::env;
+use std::ffi::OsString;
 use std::fs;
 use std::fs::File;
 use std::io::BufWriter;
@@ -59,9 +60,85 @@ impl CompilerKind
 pub enum Scanner
 {
     /// Standalone Clang dependency scanner.
-    Clang(PathBuf),
+    Clang
+    {
+        /// `clang-scan-deps` executable.
+        path: PathBuf,
+        /// The compiler's own resource directory, which holds its builtin
+        /// headers such as `stddef.h`.
+        resource_dir: PathBuf,
+    },
     /// GCC or MSVC scans with the compiler itself.
     Native,
+}
+
+/// Ask the configured compiler, wrapper and flags included, for one path.
+///
+/// # Specification
+/// - ensures: the answer comes from the compiler that will build the units, so
+///   a shim, wrapper, or versioned executable name reports its real
+///   installation.
+/// - errors: the compiler cannot start, exits unsuccessfully, or prints no
+///   path.
+/// - panics: none.
+fn query_compiler(
+    tool: &cc::Tool,
+    query: &'static str,
+) -> Result<PathBuf, BuildError>
+{
+    let output = tool
+        .to_command()
+        .arg(query)
+        .output()
+        .map_err(|source| BuildError::Io {
+            operation: "launch C++ compiler",
+            path: tool.path().to_path_buf(),
+            source,
+        })?;
+    let answer = String::from_utf8_lossy(&output.stdout);
+    let answer = answer.trim();
+    if !output.status.success() || answer.is_empty() {
+        return Err(BuildError::CompilerQuery {
+            compiler: tool.path().to_path_buf(),
+            query,
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        });
+    }
+    Ok(PathBuf::from(answer))
+}
+
+/// Select the Clang scanner and the resource directory it must scan with.
+///
+/// # Specification
+/// - ensures: without an override, the scanner is the `clang-scan-deps` the
+///   compiler reports beside itself, then the one beside the configured
+///   compiler path, then `clang-scan-deps` on `PATH`; the resource directory is
+///   always the compiler's own, because `clang-scan-deps` otherwise derives it
+///   from the compiler path it is given, which is wrong for shims.
+/// - errors: the compiler cannot report its resource directory.
+/// - panics: none.
+pub fn clang_scanner(
+    tool: &cc::Tool,
+    scanner: Option<PathBuf>,
+) -> Result<Scanner, BuildError>
+{
+    let resource_dir = query_compiler(tool, "-print-resource-dir")?;
+    let path = match scanner {
+        | Some(path) => path,
+        | None => query_compiler(tool, "-print-prog-name=clang-scan-deps")
+            .ok()
+            .filter(|path| path.is_absolute() && path.is_file())
+            .unwrap_or_else(|| {
+                let sibling = tool.path().with_file_name("clang-scan-deps");
+                if sibling.is_absolute() && !sibling.is_file() {
+                    PathBuf::from("clang-scan-deps")
+                }
+                else {
+                    sibling
+                }
+            }),
+    };
+    Ok(Scanner::Clang { path, resource_dir })
 }
 
 /// GCC requires a module mapper while the other families do not.
@@ -186,13 +263,24 @@ pub fn scan_unit(
     ));
     let json = match kind {
         | CompilerKind::Clang => {
-            let scanner = match *scanner {
-                | Scanner::Clang(ref path) => path,
+            let (scanner, resource_dir) = match *scanner {
+                | Scanner::Clang {
+                    ref path,
+                    ref resource_dir,
+                } => (path, resource_dir),
                 | Scanner::Native => return Err(BuildError::InvalidCompilerConfiguration),
             };
             let mut command = Command::new(scanner);
             let compiler = compiler_path(tool)?;
-            command.arg("-format=p1689").arg("--").arg(compiler);
+            let mut resource_flag = OsString::from("-resource-dir=");
+            resource_flag.push(resource_dir);
+            // Before the caller's flags, so an explicit `-resource-dir` still
+            // wins.
+            command
+                .arg("-format=p1689")
+                .arg("--")
+                .arg(compiler)
+                .arg(resource_flag);
             command.args(tool.args());
             command.envs(tool.env().iter().map(|pair| (&pair.0, &pair.1)));
             ensure_standard(tool, kind, &mut command);
