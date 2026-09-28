@@ -15,6 +15,10 @@ Notable changes to cpp-deps are recorded here.
 - _(core)_ Scan with the compiler's own resource directory
 - _(core)_ Build internal module partitions
 
+### Documentation
+
+- _(agents)_ Align shared guidance and adopt shared changelog generator (#14)
+
 ### Continuous Integration
 
 - _(ci)_ Align module CI with shared pattern (#9)

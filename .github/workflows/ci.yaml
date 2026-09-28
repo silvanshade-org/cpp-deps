@@ -22,7 +22,7 @@ env:
   CARGO_TERM_COLOR: always
   CCACHE_DEPEND: "true"
   # The same local-only tool exclusion is baked into the pinned CI image.
-  MISE_DISABLE_TOOLS: github:colbymchenry/codegraph,github:max-sixty/worktrunk,github:cli/cli,github:j178/prek,github:nektos/act,github:woodruffw/zizmor,npm:@commitlint/cli
+  MISE_DISABLE_TOOLS: github:colbymchenry/codegraph,github:max-sixty/worktrunk,github:j178/prek,github:nektos/act,github:woodruffw/zizmor,npm:@commitlint/cli
 
 permissions:
   contents: read
@@ -186,20 +186,31 @@ jobs:
     needs: ci-image-ref
     runs-on: *linux
     container: ${{ needs.ci-image-ref.outputs.image }} # zizmor: ignore[unpinned-images]
-    permissions: *image-read-permissions
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: read
     env:
       CXX: ccache clang++
     steps:
       - *git-checkout-history
       - name: trust runner-mounted workspace for Git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: select the fetched default branch for changelog history
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: git symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$DEFAULT_BRANCH"
       - *setup-rust
       - *setup-mise
+      - name: install PR lookup CLI for current and previously published images
+        run: mise install github:cli/cli
       - name: refuse conflict markers
         run: mise run check:conflict-markers
       - name: verify shared baseline pin
         run: mise run check:baseline-hash
       - name: verify changelog, format and file budgets
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: mise run treefmt:check
       - name: ci pin drift check
         run: mise run check:ci-pins

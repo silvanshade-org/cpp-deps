@@ -12,6 +12,7 @@
 - [Correctness](#correctness)
 - [Performance](#performance)
 - [Style](#style)
+- [Assembly](#assembly)
 - [Lints and enforcement](#lints-and-enforcement)
 - [Dependencies and the workspace](#dependencies-and-the-workspace)
 - [Documentation by specification](#documentation-by-specification)
@@ -125,6 +126,35 @@ Two corollaries. `.ok()` on a `Result` at a boundary is the same defect in metho
 - **Boring control flow and explicit state transitions.** An early return keeps the successful path flat.
 - **Name types by role.** NEVER a `Data`, `Info`, or `Manager` suffix without a semantic need.
 - **Comments explain a constraint, an invariant, or a surprising tradeoff** — never a restatement of what the code says.
+
+## Assembly
+
+Scope: every `asm!`, `naked_asm!`, and `global_asm!` block. The compiler checks none of a template's meaning, so these rules put the routine's specification, its register use, and its control flow where a reviewer reads them.
+
+- **Each routine is a named Rust item with its own documentation.** Code that owns every instruction — an entry point, a trap entry, anything that runs before a stack exists — is a naked function (`#[unsafe(naked)]` with `naked_asm!`). Everything else is `asm!` inside an ordinary function, so the compiler allocates registers and keeps its frame. `global_asm!` holds only what cannot be a function. Why: a function has a signature, a linkable name, and rustdoc the gates check; a `global_asm!` block has none of these, so its specification lives in a free comment no gate reads. One exception: a second entry that needs an alignment Rust cannot give a function (a trap vector; stable Rust has no function alignment attribute) stays a label inside the naked function that owns it, and that function's documentation specifies both entries.
+- **The rustdoc uses the Documentation by specification sections, read for machine state.** `# Specification`: `- requires:` is the state the routine assumes on entry — privilege mode, whether a stack exists, which units are on, what another agent wrote first — and `- ensures:` is the state it leaves, or where it transfers control for a routine that never returns. `# Registers`: a table of every register the template writes out by name and what it holds; a choice forced by encoding size, the calling convention, or the hardware is explained above the table, so a later edit does not undo it for readability. `# Safety` with `- unsafe invariants:`: who may enter the routine, and in what state. An `asm!` block whose registers are all compiler-allocated operands needs no table: its operand list is the table.
+
+  ```rust
+  /// # Registers
+  ///
+  /// The routine fills its whole size budget, so the hart id lives in `a2`,
+  /// where `bnez` has a 2-byte encoding.
+  ///
+  /// | Register | Holds |
+  /// | -------- | ----- |
+  /// | `a2` | this hart's `mhartid` |
+  /// | `a3` | the ready value, for signalling and for comparing |
+  ```
+
+- **The template reads as steps.** Each logical step opens with a `//` comment on its own line saying what the step achieves; an instruction whose purpose the mnemonic does not show carries a trailing comment (`"vsetvli t2, zero, e8, m1, ta, ma", // t2 = VLMAX bytes`). A comment states intent or a constraint, never the mnemonic spelled out (Style).
+- **Names, never bare registers or numbers, wherever Rust allows them.**
+  - In `asm!`, every register is a named operand (`"csrr {cause}, mcause"` with `cause = out(reg) cause`) and the compiler chooses it; an explicit register only where the instruction or the ABI fixes one.
+  - Naked and global assembly take no register operands, so registers are written out, and the `# Registers` table names each one's role. A symbol-aliasing directive (`.equ`) is no substitute: the RISC-V assembler, for one, rejects it in register position.
+  - A register class Rust accepts only as a clobber (the RISC-V vector registers, for one) is written out in every form of assembly and, in `asm!`, declared as a clobber.
+  - Labels in a naked function are descriptive (`prime_lim:`) and unique across the crate, since the compiler may place any two of the crate's naked functions in one object file. `asm!` rejects named labels (`named_asm_labels`, because the compiler may emit a block more than once), so there labels are numeric (`2:`, `2b`), each with a comment saying what it marks. A numeric label never consists only of the digits 0 and 1: on x86 those read as binary literals, and `binary_asm_labels` rejects them, so numbering starts at 2.
+  - Every constant is a named `const` operand (`primed = const PRIMED`), never a literal in the template, and a derived value is computed in the operand expression (`page = const BASE >> 12_u32`): a bare number carries no provenance and does not follow the Rust definition when it changes.
+
+Reversal: each workaround above retires when stable Rust removes its cause — function alignment for the in-function trap entry, register operands in naked assembly or an accepted register alias for the written-out registers and their table, vector register operands for the clobber-only rule.
 
 ## Lints and enforcement
 

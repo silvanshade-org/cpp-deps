@@ -35,11 +35,25 @@ excludes = [
 # here in the same change, and a consumer with no surface for a formatter drops
 # both. The entries below are the union: Rust, markdown, TOML, JS and JSON,
 # spelling, file size, and shell.
-# Generate release notes before Markdown formatting; unchanged bytes are not rewritten.
+# Generate before Markdown formatting; normalize and install only changed bytes.
 [formatter."changelog-generate"]
 priority = -3
-command = "mise"
-options = ["run", "changelog:render"]
+command = "sh"
+options = ["-c", "mise run changelog:render"]
+includes = ["CHANGELOG.md"]
+no-positional-arg-support = true
+
+[formatter."changelog-normalize"]
+priority = -2
+command = "rumdl"
+options = ["fmt", ".git-cliff-output", "--exclude"]
+includes = ["CHANGELOG.md"]
+no-positional-arg-support = true
+
+[formatter."changelog-install"]
+priority = -1
+command = "sh"
+options = ["-c", "install -C -m 0644 .git-cliff-output CHANGELOG.md"]
 includes = ["CHANGELOG.md"]
 no-positional-arg-support = true
 
