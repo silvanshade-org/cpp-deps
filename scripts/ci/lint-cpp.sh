@@ -12,15 +12,32 @@ fi
 mise exec -- cargo build --locked -p module-smoke
 out=''
 for candidate in "${CARGO_TARGET_DIR:-target}"/debug/build/module-smoke-*/out; do
-  [[ -f $candidate/module-2.pcm ]] || continue
-  if [[ -z $out || $candidate/module-2.pcm -nt $out/module-2.pcm ]]; then
+  [[ -f $candidate/libmodule_smoke.a ]] || continue
+  if [[ -z $out || $candidate/libmodule_smoke.a -nt $out/libmodule_smoke.a ]]; then
     out=$candidate
   fi
 done
 if [[ -z $out ]]; then
-  printf 'module-smoke produced no Clang module interfaces\n' >&2
+  printf 'module-smoke produced no Clang module archive\n' >&2
   exit 1
 fi
+module_file() {
+  local object name path
+  object=$(jq -r --arg logical "$1" '
+    .rules[] | select(any(.provides[]?; ."logical-name" == $logical)) | ."primary-output"
+  ' "$out"/unit-*.p1689.json)
+  name=${object##*/}
+  path=$out/module-${name#unit-}
+  path=${path%.o}.pcm
+  [[ -f $path ]] || {
+    printf 'module-smoke produced no BMI for %s\n' "$1" >&2
+    return 1
+  }
+  printf '%s\n' "$path"
+}
+sample=$(module_file sample)
+part=$(module_file sample:part)
+detail=$(module_file sample:detail)
 resource_dir=$(mise exec -- clang -print-resource-dir)
 for source in part.cppm detail.cppm interface.cppm implementation.cpp consumer.cpp; do
   # conda-forge's clang-tidy and clang++ share LLVM 22.1.8 but record different
@@ -28,7 +45,7 @@ for source in part.cppm detail.cppm interface.cppm implementation.cpp consumer.c
   mise exec -- clang-tidy --quiet --warnings-as-errors='*' "crates/module-smoke/src/$source" -- \
     -std=c++20 -fmodules -Icrates/module-smoke/include "-resource-dir=$resource_dir" \
     -Xclang -fno-validate-pch \
-    "-fmodule-file=sample=$out/module-2.pcm" \
-    "-fmodule-file=sample:part=$out/module-3.pcm" \
-    "-fmodule-file=sample:detail=$out/module-4.pcm"
+    "-fmodule-file=sample=$sample" \
+    "-fmodule-file=sample:part=$part" \
+    "-fmodule-file=sample:detail=$detail"
 done
