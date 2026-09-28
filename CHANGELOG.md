@@ -7,6 +7,7 @@ Notable changes to cpp-deps are recorded here.
 ### Features
 
 - _(core)_ Build C++20 modules for Cargo
+- _(core)_ Borrow parser data and cache modules (#11)
 
 ### Bug Fixes
 
