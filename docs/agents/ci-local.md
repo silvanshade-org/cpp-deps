@@ -101,9 +101,9 @@ A library producer runs `mise run toolchain:bump <stable>` to move its nightly a
 
 ## External workflow consumer
 
-Load `rust_workflow_dylint` from the workspace's Git metadata with `CARGO_INCREMENTAL=0`. Cache `target/dylint` only by an exact key containing the metadata file, `rust-toolchain.toml`, the Dylint version, and runner OS/architecture; never supply restore prefixes. A restored library from another revision is another policy even when Cargo considers its artifact fresh.
+Load `quenchant_dylints` from the workspace's Git metadata with `CARGO_INCREMENTAL=0`. Cache `target/dylint` only by an exact key containing the metadata file, `rust-toolchain.toml`, the Dylint version, and runner OS/architecture; never supply restore prefixes. A restored library from another revision is another policy even when Cargo considers its artifact fresh.
 
-Install `rust-workflow-gates` with the metadata revision through `cargo install --git --rev --locked --bin rust-workflow-gates rust-workflow-gates`. Both `contracts` and `witnesses` require the consumer's `--manifest-path`. Prove discovery and both commands from an unrelated working directory. Consumer build, nextest, Clippy, rustdoc, and cross-target commands cover every local workspace member; plugin unit/UI tests belong to the producer.
+Install `quenchant-gates` with the metadata revision through `cargo install --git --rev --locked --bin quenchant-gates quenchant-gates`. Both `anodized` and `witnesses` require the consumer's `--manifest-path`. Prove discovery and both commands from an unrelated working directory. Consumer build, nextest, Clippy, rustdoc, and cross-target commands cover every local workspace member; plugin unit/UI tests belong to the producer.
 
 A cold hosted run needs access to the Git source. An authenticated local pass does not prove public-source access: while the source remains private, a consumer PR stays draft and states that hosted CI and landing wait for public access. No consumer Actions secret is added for a dependency intended to be public.
 

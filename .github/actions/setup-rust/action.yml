@@ -64,10 +64,8 @@ runs:
         # the restore stays a full match on an older content shape,
         # the save is skipped as up-to-date, and every run recompiles
         # from scratch. Bumping the prefix rotates the lane at once.
-        # delta: the prefix names this repository's cache lane and its content
-        # shape; a consumer sets its own name and bumps the generation counter
-        # when the shape changes.
-        prefix-key: project-v1-rust-deps
+        # The generation is local to this repository's Rust build graph.
+        prefix-key: cpp-deps-v1-rust-deps
         # One dependency cache across every Rust job; the gate lane's
         # block shares this key, so the cache holds the whole
         # workspace's artifacts under the single toolchain.

@@ -52,3 +52,7 @@ The `module-smoke` workspace crate builds an interface partition, an internal pa
 ## CI status contexts
 
 Workflow display names match the protected branch's required status checks. Job IDs remain stable for dependency edges and cache-writer selection; changing a display name independently of branch protection can leave a passing run unable to enter the merge queue.
+
+## CI
+
+Pull requests run light quality, format, workflow lint, and fail-open path-filter contracts. Main pushes and merge queues add both Clang 22 and GCC 16 module tests with nextest JUnit reports. The native compiler lanes invoke ccache and retain per-unit depfiles; clangd, clang-tidy, and clang-format share the reference runtime profile. Run `mise run check:ci-pins` to verify workflow/image tool pin agreement and `mise run check:ci-scripts` to exercise the filter boundaries and `mise run lint:cpp` for every module translation unit and `mise exec -- act push -j workflow-lint` for the local workflow smoke. The prebuilt image stays optional until its published GHCR tag has passed a preview run.

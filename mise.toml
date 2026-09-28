@@ -29,10 +29,12 @@ _.path = ["{{ exec(command='r=$(command -v rustup) || r=\"${CARGO_HOME:-$HOME/.c
 includes = [".config/mise/tasks"]
 
 [tools]
-# Clang, its C++ driver, and clang-scan-deps are distinct conda-forge packages.
+# Clang, its C++ driver, scanner, formatter, and lint tools are separate packages.
 "conda:clang" = "22.1.8"
 "conda:clangxx" = "22.1.8"
 "conda:clang-scan-deps" = "22.1.8"
+"conda:clang-format" = "22.1.8"
+"conda:clang-tools" = "22.1.8"
 "github:aubepkg/aube" = "2.2.4"
 "github:colbymchenry/codegraph" = "1.6.0"
 "github:cli/cli" = "v2.101.0"

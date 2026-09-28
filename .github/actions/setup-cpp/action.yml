@@ -23,4 +23,4 @@ runs:
       run: sudo apt-get update
     - if: ${{ inputs.install == 'true' }}
       shell: bash
-      run: sudo apt-get install -y --no-install-recommends gcc-16 g++-16
+      run: sudo apt-get install -y --no-install-recommends gcc-16 g++-16 ccache

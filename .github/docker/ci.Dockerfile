@@ -4,7 +4,7 @@ FROM gcc:16@sha256:ef558a40d1f13115293feee01526dbdb9aaad7c9c5a00da05f471ce042e85
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git jq nodejs npm pkg-config && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git jq nodejs npm pkg-config ccache && rm -rf /var/lib/apt/lists/*
 
 ENV MISE_DATA_DIR=/opt/mise CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
 ENV PATH="/opt/cargo/bin:/opt/mise/shims:${PATH}"

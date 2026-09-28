@@ -3,7 +3,8 @@
 
 [files]
 # treefmt.toml: formatter names and glob fragments read as typos to the checker.
-extend-exclude = ["treefmt.toml"]
+# .clang-tidy: dumped upstream abbreviations include cpy; changing them corrupts diagnostics.
+extend-exclude = ["treefmt.toml", ".clang-tidy"]
 
 [default]
 
