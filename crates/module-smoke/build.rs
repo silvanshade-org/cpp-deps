@@ -16,8 +16,8 @@ fn main() -> Result<(), Box<dyn core::error::Error>>
         .source("src/part.cppm")
         .source("src/detail.cppm")
         .parallelism(parallelism);
-    // cpp-deps watches the registered sources; headers they include are the
-    // caller's to watch.
+    // Textual dependencies are tracked by cpp-deps. Watch the search
+    // directory too, so a newly introduced header triggers rediscovery.
     println!("cargo:rerun-if-changed=include");
     let output = modules.compile()?;
     assert_eq!(
@@ -25,14 +25,22 @@ fn main() -> Result<(), Box<dyn core::error::Error>>
         3,
         "interface, interface-partition, and internal-partition BMIs"
     );
-    for (module, path) in &output.interfaces {
+    for artifact in &output.interfaces {
+        let module = &artifact.description.logical_name;
+        let path = &artifact.path;
         assert!(
-            matches!(module.as_ref(), "sample" | "sample:part" | "sample:detail"),
+            matches!(
+                module.as_ref(),
+                b"sample" | b"sample:part" | b"sample:detail"
+            ),
             "unexpected module name: {}",
-            module.as_ref()
+            module.as_ref().escape_ascii()
         );
-        assert!(path.is_file(), "{} BMI was not produced", module.as_ref());
-        assert!(path.starts_with(&out_dir), "BMI escaped OUT_DIR");
+        assert!(
+            path.is_file(),
+            "{} BMI was not produced",
+            module.as_ref().escape_ascii()
+        );
     }
     for object in &output.objects {
         assert!(

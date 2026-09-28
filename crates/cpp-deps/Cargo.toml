@@ -8,9 +8,11 @@ license.workspace = true
 publish = false
 
 [dependencies]
+blake3.workspace = true
 cc.workspace = true
+jobserver.workspace = true
 p1689.workspace = true
-serde_json.workspace = true
+shlex.workspace = true
 
 [lints]
 workspace = true

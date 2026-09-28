@@ -9,12 +9,17 @@
 
 extern crate alloc;
 
+/// Validated local module caching and immutable-toolchain attestations.
+pub mod cache;
+/// Compiler discovery and coherent operation execution.
+pub(crate) mod cache_run;
+/// Compiler textual dependency witnesses and Cargo input tracking.
+pub(crate) mod depfile;
 /// Topological scheduling and named provider resolution.
 pub(crate) mod graph;
 /// Compiler-specific P1689 scanning and module artifact generation.
 pub(crate) mod runner;
 
-use alloc::collections::BTreeMap;
 use alloc::string::String;
 use core::fmt;
 use core::num::NonZeroUsize;
@@ -44,6 +49,11 @@ pub struct ModuleBuild
     scanner: Option<PathBuf>,
     /// Maximum number of ready units built at the same time.
     parallelism: NonZeroUsize,
+    /// Reuse is opt-in and requires an explicit toolchain attestation.
+    cache: cache::Policy,
+    /// Shared capacity supplied by the caller; one implicit slot needs no
+    /// token.
+    jobserver: Option<jobserver::Client>,
 }
 
 impl ModuleBuild
@@ -71,8 +81,27 @@ impl ModuleBuild
             sources: Vec::new(),
             out_dir: None,
             scanner: None,
-            parallelism: thread::available_parallelism().unwrap_or(NonZeroUsize::MIN),
+            parallelism: NonZeroUsize::MAX,
+            cache: cache::Policy::Disabled,
+            jobserver: None,
         }
+    }
+
+    /// Enable complete local module caching with an attested toolchain.
+    ///
+    /// # Specification
+    /// - requires: the cache configuration meets its immutable-toolchain and
+    ///   cooperative-filesystem obligations.
+    /// - ensures: current dependency discovery precedes every cache hit.
+    /// - panics: none.
+    #[inline]
+    pub fn cache(
+        &mut self,
+        cache: cache::ModuleCache,
+    ) -> &mut Self
+    {
+        self.cache = cache::Policy::Enabled(cache);
+        self
     }
 
     /// Add a module interface, implementation, partition, or importer source.
@@ -126,6 +155,24 @@ impl ModuleBuild
         P: Into<PathBuf>,
     {
         self.scanner = Some(scanner.into());
+        self
+    }
+
+    /// Share caller-owned jobserver capacity for additional compiler workers.
+    ///
+    /// # Specification
+    /// - requires: caller owns one implicit execution slot and supplies the
+    ///   enclosing build jobserver, not an independent replacement pool.
+    /// - ensures: every additional worker holds a token until its batch joins;
+    ///   absent a client, compilation remains serial.
+    /// - panics: none.
+    #[inline]
+    pub fn jobserver(
+        &mut self,
+        client: jobserver::Client,
+    ) -> &mut Self
+    {
+        self.jobserver = Some(client);
         self
     }
 
@@ -189,6 +236,23 @@ impl ModuleBuild
             path: out_dir,
             source,
         })?;
+        let lock_path = out_dir.join(".cpp-deps.lock");
+        let output_lock = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .map_err(|source| BuildError::Io {
+                operation: "open output-session lock",
+                path: lock_path.clone(),
+                source,
+            })?;
+        output_lock.lock().map_err(|source| BuildError::Io {
+            operation: "lock module output session",
+            path: lock_path,
+            source,
+        })?;
         self.build.out_dir(&out_dir);
         let tool = self
             .build
@@ -203,7 +267,7 @@ impl ModuleBuild
         let mut units = Vec::with_capacity(self.sources.len());
         let cargo_output = io::stdout();
         let mut cargo_output = cargo_output.lock();
-        for (index, source) in self.sources.iter().enumerate() {
+        for source in &self.sources {
             let source = fs::canonicalize(source).map_err(|error| BuildError::Io {
                 operation: "resolve source",
                 path: source.clone(),
@@ -216,40 +280,178 @@ impl ModuleBuild
                     source: error,
                 },
             )?;
-            let unit =
-                runner::scan_unit(&tool, kind, &scanner, &out_dir, UnitIndex(index), source)?;
+            let unit = runner::scan_unit(&tool, kind, &scanner, &out_dir, source)?;
             units.push(unit);
         }
         drop(cargo_output);
-        let ordering = plan(&units)?;
-        let interfaces: BTreeMap<_, _> = ordering
-            .providers
-            .into_iter()
-            .map(|(name, index)| {
-                (
-                    name,
-                    runner::interface_path(kind, &out_dir, UnitIndex(index)),
-                )
-            })
-            .collect();
-        let mapper = runner::write_mapper(kind, &out_dir, &interfaces)?;
-
+        let scans = units;
+        let units: Vec<_> = scans
+            .iter()
+            .map(runner::parse_scan)
+            .collect::<Result<_, _>>()?;
+        let cwd = env::current_dir().map_err(|source| BuildError::Io {
+            operation: "read invocation directory",
+            path: out_dir.clone(),
+            source,
+        })?;
+        let ordering = plan(&units, &cwd)?;
+        let interfaces = runner::interface_paths(&units, kind, &out_dir, &cwd)?;
+        let mapper = runner::write_mapper(kind, &out_dir, &units, &interfaces)?;
+        let session = cache_run::Session {
+            tool: &tool,
+            kind,
+            cache: &self.cache,
+            cwd: &cwd,
+            output_root: &out_dir,
+            owners: std::sync::Mutex::default(),
+        };
+        let shared = if let Some(ref client) = self.jobserver {
+            let (sender, receiver) = std::sync::mpsc::channel();
+            let helper = client
+                .clone()
+                .into_helper_thread(move |permit| {
+                    drop(sender.send(permit));
+                })
+                .map_err(|source| BuildError::Io {
+                    operation: "start shared compiler capacity acquisition",
+                    path: out_dir.clone(),
+                    source,
+                })?;
+            Some((helper, receiver))
+        }
+        else {
+            None
+        };
+        let mut requested = 0_usize;
+        let mut permits = Vec::new();
+        let mut scratch = Vec::new();
         for layer in &ordering.layers {
-            for batch in layer.chunks(self.parallelism.get()) {
-                compile_batch(&units, batch, |index| {
-                    let unit = units.get(index.0).ok_or(BuildError::GraphInvariant)?;
-                    let imports = ordering
-                        .imports
-                        .get(index.0)
+            let mut pending = layer.as_slice();
+            while !pending.is_empty() {
+                if let Some((ref helper, ref receiver)) = shared {
+                    let additional = pending
+                        .len()
+                        .min(self.parallelism.get())
+                        .checked_sub(1)
                         .ok_or(BuildError::GraphInvariant)?;
-                    runner::compile_unit(&tool, kind, unit, imports, &units, &interfaces, &mapper)
+                    while requested < additional {
+                        helper.request_token();
+                        requested = requested.checked_add(1).ok_or(BuildError::GraphInvariant)?;
+                    }
+                    while permits.len() < additional {
+                        match receiver.try_recv() {
+                            | Ok(permit) => {
+                                requested =
+                                    requested.checked_sub(1).ok_or(BuildError::GraphInvariant)?;
+                                permits.push(permit.map_err(|source| BuildError::Io {
+                                    operation: "acquire shared compiler capacity",
+                                    path: out_dir.clone(),
+                                    source,
+                                })?);
+                            },
+                            | Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                            | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                return Err(BuildError::Io {
+                                    operation: "receive shared compiler capacity",
+                                    path: out_dir.clone(),
+                                    source: io::Error::new(
+                                        io::ErrorKind::BrokenPipe,
+                                        "jobserver acquisition helper disconnected",
+                                    ),
+                                });
+                            },
+                        }
+                    }
+                }
+                let count = permits
+                    .len()
+                    .checked_add(1)
+                    .ok_or(BuildError::GraphInvariant)?;
+                let (batch, remaining) = pending.split_at(count);
+                compile_batch(&units, batch, &mut scratch, |index, scratch| {
+                    let imports = scratch.resolve(&ordering, index)?;
+                    runner::compile_unit(&session, index, imports, &units, &interfaces, &mapper)
+                })?;
+                permits.clear();
+                pending = remaining;
+            }
+        }
+        drop(shared);
+        if !matches!(kind, CompilerKind::Msvc) {
+            let mut dependencies = alloc::collections::BTreeSet::new();
+            for unit in &units {
+                let path = unit.object.with_extension("d");
+                let inputs = depfile::read(&path, &cwd).map_err(|source| BuildError::Io {
+                    operation: "read compiler textual dependencies",
+                    path,
+                    source,
+                })?;
+                dependencies.extend(inputs);
+            }
+            // Generated artifacts are outputs, not Cargo source dependencies.
+            for unit in &units {
+                dependencies.remove(unit.object);
+            }
+            for interface in &interfaces {
+                if let runner::InterfacePath::Produced(ref path) = *interface {
+                    dependencies.remove(path);
+                }
+            }
+            if let runner::Mapper::Gcc(ref path) = mapper {
+                dependencies.remove(path);
+            }
+            let stdout = io::stdout();
+            let mut stdout = stdout.lock();
+            for path in dependencies {
+                let text = path
+                    .to_str()
+                    .filter(|text| !text.contains(['\r', '\n']))
+                    .ok_or_else(|| BuildError::Io {
+                        operation: "encode Cargo dependency path",
+                        path: path.clone(),
+                        source: io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "Cargo dependency paths must be UTF-8 without line breaks",
+                        ),
+                    })?;
+                writeln!(stdout, "cargo:rerun-if-changed={text}").map_err(|source| {
+                    BuildError::Io {
+                        operation: "emit Cargo dependency",
+                        path,
+                        source,
+                    }
                 })?;
             }
         }
-        Ok(BuildOutput {
-            objects: units.into_iter().map(|unit| unit.object).collect(),
-            interfaces,
-        })
+        drop(ordering);
+        let mut output = BuildOutput {
+            objects: Vec::with_capacity(units.len()),
+            interfaces: Vec::new(),
+        };
+        for (unit, destination) in units.into_iter().zip(interfaces) {
+            output.objects.push(unit.object.to_path_buf());
+            if let runner::InterfacePath::Produced(path) = destination
+                && let Some(provided) = unit.rule.provides.into_iter().next()
+            {
+                let desc = provided.desc;
+                output.interfaces.push(ModuleArtifact {
+                    description: p1689::r5::ModuleDesc {
+                        logical_name: ModuleName(alloc::borrow::Cow::Owned(
+                            desc.logical_name.0.into_owned(),
+                        )),
+                        source_path: desc
+                            .source_path
+                            .map(|path| alloc::borrow::Cow::Owned(path.into_owned())),
+                        compiled_module_path: desc
+                            .compiled_module_path
+                            .map(|path| alloc::borrow::Cow::Owned(path.into_owned())),
+                        unique_on_source_path: desc.unique_on_source_path,
+                    },
+                    path,
+                });
+            }
+        }
+        Ok(output)
     }
 }
 /// Compile one independent batch concurrently and join every worker.
@@ -266,19 +468,23 @@ impl ModuleBuild
 ///   other to start, regardless of their launch order.
 /// - witness: `tests::independent_units_overlap`
 fn compile_batch<F>(
-    units: &[graph::Unit],
+    units: &[graph::Unit<'_>],
     batch: &[UnitIndex],
+    scratch: &mut Vec<graph::ImportScratch>,
     execute: F,
 ) -> Result<(), BuildError>
 where
-    F: Fn(UnitIndex) -> Result<(), BuildError> + Sync,
+    F: Fn(UnitIndex, &mut graph::ImportScratch) -> Result<(), BuildError> + Sync,
 {
+    if scratch.len() < batch.len() {
+        scratch.resize_with(batch.len(), graph::ImportScratch::default);
+    }
     thread::scope(|scope| -> Result<(), BuildError> {
         let mut workers = Vec::with_capacity(batch.len());
         let execute = &execute;
-        for &index in batch {
+        for (&index, scratch) in batch.iter().zip(scratch.iter_mut()) {
             let unit = units.get(index.0).ok_or(BuildError::GraphInvariant)?;
-            workers.push((unit, scope.spawn(move || execute(index))));
+            workers.push((unit, scope.spawn(move || execute(index, scratch))));
         }
         for (unit, worker) in workers {
             let result = worker.join().map_err(|panic| {
@@ -292,7 +498,7 @@ where
                     Clone::clone,
                 );
                 BuildError::WorkerPanic {
-                    source: unit.source.clone(),
+                    source: unit.source.to_path_buf(),
                     reason,
                 }
             })?;
@@ -318,40 +524,43 @@ mod tests
     fn independent_units_overlap()
     {
         let units = ["first.cpp", "second.cpp"].map(|name| Unit {
-            source: name.into(),
-            object: name.into(),
-            provides: Vec::new(),
-            internal_partition: false,
-            requires: Vec::new(),
+            source: std::path::Path::new(name),
+            object: std::path::Path::new(name),
+            rule: p1689::r5::DepInfo::default(),
         });
         let (first_sender, first_receiver) = mpsc::channel();
         let (second_sender, second_receiver) = mpsc::channel();
         let first_receiver = Mutex::new(first_receiver);
         let second_receiver = Mutex::new(second_receiver);
         let observed = AtomicUsize::new(0);
-        compile_batch(&units, &[UnitIndex(0), UnitIndex(1)], |index| {
-            let elapsed = core::time::Duration::from_secs(2);
-            let concurrent = if index == UnitIndex(0) {
-                first_sender.send(()).expect("receiver remains live");
-                second_receiver
-                    .lock()
-                    .expect("receiver lock")
-                    .recv_timeout(elapsed)
-                    .is_ok()
-            }
-            else {
-                second_sender.send(()).expect("receiver remains live");
-                first_receiver
-                    .lock()
-                    .expect("receiver lock")
-                    .recv_timeout(elapsed)
-                    .is_ok()
-            };
-            if concurrent {
-                observed.fetch_add(1, Ordering::Relaxed);
-            }
-            Ok(())
-        })
+        compile_batch(
+            &units,
+            &[UnitIndex(0), UnitIndex(1)],
+            &mut Vec::new(),
+            |index, _scratch| {
+                let elapsed = core::time::Duration::from_secs(2);
+                let concurrent = if index == UnitIndex(0) {
+                    first_sender.send(()).expect("receiver remains live");
+                    second_receiver
+                        .lock()
+                        .expect("receiver lock")
+                        .recv_timeout(elapsed)
+                        .is_ok()
+                }
+                else {
+                    second_sender.send(()).expect("receiver remains live");
+                    first_receiver
+                        .lock()
+                        .expect("receiver lock")
+                        .recv_timeout(elapsed)
+                        .is_ok()
+                };
+                if concurrent {
+                    observed.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok(())
+            },
+        )
         .expect("independent batch");
         assert_eq!(
             observed.load(Ordering::Relaxed),
@@ -367,7 +576,16 @@ pub struct BuildOutput
     /// Linkable objects in the order sources were added to [`ModuleBuild`].
     pub objects: Vec<PathBuf>,
     /// Compiled interface path for each provided logical module or partition.
-    pub interfaces: BTreeMap<ModuleName, PathBuf>,
+    pub interfaces: Vec<ModuleArtifact>,
+}
+
+/// Complete module identity and its produced BMI destination.
+pub struct ModuleArtifact
+{
+    /// Reported identity and paths, owned across the invocation boundary.
+    pub description: p1689::r5::ModuleDesc<'static>,
+    /// Actual compiler destination for this artifact.
+    pub path: PathBuf,
 }
 
 /// Named scan, planning, compiler, or filesystem failure.
@@ -424,7 +642,7 @@ pub enum BuildError
         /// Translation unit being scanned.
         source: PathBuf,
         /// Parser diagnostic.
-        error: serde_json::Error,
+        error: p1689::ParseError,
     },
     /// Scanner returned a rule count other than one for a translation unit.
     InvalidRules
@@ -444,7 +662,7 @@ pub enum BuildError
         /// Importing translation unit.
         source: PathBuf,
         /// Required module or header name.
-        module: ModuleName,
+        module: ModuleName<'static>,
     },
     /// A module import has no provider in this build.
     MissingImport
@@ -452,13 +670,13 @@ pub enum BuildError
         /// Importing translation unit.
         source: PathBuf,
         /// Missing logical module name.
-        module: ModuleName,
+        module: ModuleName<'static>,
     },
     /// Two sources provide the same interface.
     DuplicateProvider
     {
         /// Duplicated logical module name.
-        module: ModuleName,
+        module: ModuleName<'static>,
         /// Earlier source.
         first: PathBuf,
         /// Later source.
@@ -470,7 +688,7 @@ pub enum BuildError
         /// Translation units still blocked when scheduling stops.
         sources: Vec<PathBuf>,
         /// Logical modules provided by the blocked translation units.
-        modules: Vec<ModuleName>,
+        modules: Vec<ModuleName<'static>>,
     },
     /// A native compiler failed to build the named translation unit.
     CompileFailed
@@ -555,7 +773,7 @@ impl fmt::Display for BuildError
             } => write!(
                 f,
                 "unsupported header-unit import {} in {}",
-                module.as_ref(),
+                module.as_ref().escape_ascii(),
                 source.display()
             ),
             | Self::MissingImport {
@@ -564,7 +782,7 @@ impl fmt::Display for BuildError
             } => write!(
                 f,
                 "missing import {} required by {}",
-                module.as_ref(),
+                module.as_ref().escape_ascii(),
                 source.display()
             ),
             | Self::DuplicateProvider {
@@ -574,7 +792,7 @@ impl fmt::Display for BuildError
             } => write!(
                 f,
                 "duplicate provider of {}: {} and {}",
-                module.as_ref(),
+                module.as_ref().escape_ascii(),
                 first.display(),
                 second.display()
             ),
@@ -587,7 +805,7 @@ impl fmt::Display for BuildError
                     if index > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", module.as_ref())?;
+                    write!(f, "{}", module.as_ref().escape_ascii())?;
                 }
                 write!(f, " (blocked sources: ")?;
                 for (index, source) in sources.iter().enumerate() {
