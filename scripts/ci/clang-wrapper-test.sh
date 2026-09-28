@@ -4,6 +4,6 @@
 set -eu
 wrapper="$RUNNER_TEMP/wrapped-cxx/clang++"
 mkdir -p "$(dirname "$wrapper")"
-printf '#!/bin/sh\nexec "%s" "$@"\n' "$(command -v clang++)" > "$wrapper"
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$(mise which clang++)" > "$wrapper"
 chmod +x "$wrapper"
-CXX="ccache $wrapper" cargo nextest run --profile ci -p module-smoke
+CXX="ccache $wrapper" cargo nextest run --profile default -p module-smoke
