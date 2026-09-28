@@ -354,7 +354,8 @@ fn ensure_standard(
 /// - requires: `source` is an absolute path and `out_dir` exists.
 /// - ensures: compiler flags and environment from `cc::Build` are retained; the
 ///   Clang scanner receives the unwrapped compiler, while native GCC/MSVC
-///   invocations retain the configured wrapper.
+///   invocations retain the configured wrapper. Every scanner command selects
+///   the same planned object destination as its compilation command.
 /// - errors: process, scanner, JSON, rule-count, or unsupported lookup failure.
 /// - panics: none.
 pub fn scan_unit(
@@ -460,6 +461,7 @@ pub fn scan_unit(
                 .arg("/scanDependencies")
                 .arg(&deps)
                 .arg("/interface")
+                .arg(path_argument("/Fo".as_ref(), &object))
                 .arg("/Tp")
                 .arg(&source);
             let output = command.output().map_err(|error| BuildError::Io {
