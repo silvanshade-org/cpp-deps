@@ -48,3 +48,7 @@ The filesystem contract is cooperative input mutation with content revalidation,
 ## Native smoke
 
 The `module-smoke` workspace crate builds an interface partition, an internal partition, an interface, an implementation, and an importer, archives their objects, and asserts the linked C ABI values from a Rust test. To exercise both supported compiler lanes locally, run `CXX=clang++ mise exec -- cargo test --workspace` and `CXX=g++ mise exec -- cargo test --workspace` with Clang 22 (and its scanner) and GCC 16 installed.
+
+## CI status contexts
+
+Workflow display names match the protected branch's required status checks. Job IDs remain stable for dependency edges and cache-writer selection; changing a display name independently of branch protection can leave a passing run unable to enter the merge queue.
