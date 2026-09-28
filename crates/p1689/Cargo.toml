@@ -2,13 +2,13 @@
 name = "p1689"
 version.workspace = true
 edition.workspace = true
-description = "Owned P1689 revision 5 C++ module dependency model"
+description = "Borrowed P1689 revision 5 dependency model and JSON parser"
 repository.workspace = true
 license.workspace = true
 publish = false
 
 [dependencies]
-serde.workspace = true
+memchr.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

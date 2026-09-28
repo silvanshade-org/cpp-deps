@@ -1,67 +1,59 @@
 #![no_std]
-//! Owned data model for P1689 revision 5 C++ module dependency files.
+//! Borrowed P1689 scanner records with specialized byte parsing.
 
 extern crate alloc;
+
+mod parser;
+
+pub use parser::JsonInput;
+pub use parser::ParseError;
+pub use parser::ParseErrorKind;
 
 /// P1689 revision 5 dependency descriptions.
 pub mod r5
 {
-    use alloc::string::String;
+    use alloc::borrow::Cow;
     use alloc::vec::Vec;
 
-    use serde::Deserialize;
-    use serde::Serialize;
-
     /// Wire-format version of a dependency file.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     #[repr(transparent)]
-    #[serde(transparent)]
     pub struct Version(pub u32);
 
     /// Wire-format revision of a dependency file.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     #[repr(transparent)]
-    #[serde(transparent)]
     pub struct Revision(pub u32);
 
-    /// Logical name used to match a provided module with an import.
-    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    /// Logical name bytes; unescaped input borrows the scanner buffer.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     #[repr(transparent)]
-    #[serde(transparent)]
-    pub struct ModuleName(pub String);
+    pub struct ModuleName<'source>(pub Cow<'source, [u8]>);
 
-    impl AsRef<str> for ModuleName
+    impl AsRef<[u8]> for ModuleName<'_>
     {
-        /// Borrow the module's logical name.
+        /// Borrow the logical name.
         ///
         /// # Specification
         /// trivial.
         #[inline]
-        fn as_ref(&self) -> &str
+        fn as_ref(&self) -> &[u8]
         {
             &self.0
         }
     }
 
     /// Whether a provided unit exports a compiled module interface.
-    #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     #[repr(transparent)]
-    #[serde(transparent)]
     pub struct IsInterface(pub bool);
 
     impl Default for IsInterface
     {
-        /// Use the P1689 default for an omitted `is-interface` field.
+        /// Apply P1689's omitted-field default.
         ///
         /// # Specification
-        /// - ensures: an omitted field denotes an interface, not an
-        ///   implementation.
-        /// - panics: none.
-        ///
-        /// # Adequacy
-        /// - hypothesis: L3 checks the omitted field and explicit false on
-        ///   valid dependency files.
-        /// - witness: `r5::tests::omitted_interface_defaults_to_true`
+        /// trivial.
         #[inline]
         fn default() -> Self
         {
@@ -69,140 +61,107 @@ pub mod r5
         }
     }
 
-    /// A P1689 revision 5 dependency file containing one or more rules.
-    #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-    #[serde(rename_all = "kebab-case")]
-    pub struct DepFile
+    /// Dependency file borrowing strings from caller-owned scanner output.
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct DepFile<'source>
     {
-        /// Format version, usually 1.
+        /// Wire-format version.
         pub version: Version,
-        /// Optional format revision, usually 5.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        /// Revision when explicitly reported.
         pub revision: Option<Revision>,
-        /// Dependency rules produced by the scanner.
-        pub rules: Vec<DepInfo>,
+        /// Translation-unit rules in scanner order.
+        pub rules: Vec<DepInfo<'source>>,
     }
 
-    /// Dependency information associated with one translation unit.
-    #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-    #[serde(rename_all = "kebab-case")]
-    pub struct DepInfo
+    impl<'source> DepFile<'source>
     {
-        /// Directory used for relative paths in the rule.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub work_directory: Option<String>,
-        /// Object or other primary compiler output.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub primary_output: Option<String>,
-        /// Additional outputs from the same compilation.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        pub outputs: Vec<String>,
-        /// Modules made available by this unit.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        pub provides: Vec<ProvidedModuleDesc>,
-        /// Modules needed before this unit can compile.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        pub requires: Vec<RequiredModuleDesc>,
+        /// Parse a complete dependency file without copying unescaped strings.
+        ///
+        /// # Specification
+        /// - ensures: field order does not affect the result; every recognized
+        ///   field is retained, including source identity and output locations.
+        /// - requires: scanner-produced JSON with literal schema keys.
+        /// - fails: malformed structure, duplicate or unknown fields, invalid
+        ///   escapes, missing required fields, or integer overflow.
+        /// - panics: none.
+        /// - intension: ordinary strings borrow bytes without UTF-8 validation;
+        ///   only escaped strings allocate. Nesting follows the fixed schema.
+        ///
+        /// # Errors
+        /// Returns a byte offset and named parsing failure.
+        ///
+        /// # Adequacy
+        /// - hypothesis: field permutations, Unicode boundaries and malformed
+        ///   tokens distinguish metadata loss and accepting invalid input.
+        /// - witness: parser conformance tests.
+        #[inline]
+        pub fn parse(input: crate::JsonInput<'source>) -> Result<Self, crate::ParseError>
+        {
+            crate::parser::parse(input)
+        }
     }
 
-    /// Logical name and optional source or compiled-module locations.
-    #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-    #[serde(rename_all = "kebab-case")]
-    pub struct ModuleDesc
+    /// Complete dependency rule for one translation unit.
+    #[derive(Clone, Debug, Default, Eq, PartialEq)]
+    pub struct DepInfo<'source>
     {
-        /// Logical module identity, including a partition suffix when present.
-        pub logical_name: ModuleName,
-        /// Path identifying a source-unique module, if supplied.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub source_path: Option<String>,
-        /// Compiler-supplied interface path, if supplied.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        pub compiled_module_path: Option<String>,
-        /// Whether `source-path` rather than `logical-name` is unique.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
+        /// Base directory for relative rule paths.
+        pub work_directory: Option<Cow<'source, [u8]>>,
+        /// Primary compiler output.
+        pub primary_output: Option<Cow<'source, [u8]>>,
+        /// Additional compiler outputs.
+        pub outputs: Vec<Cow<'source, [u8]>>,
+        /// Provided modules.
+        pub provides: Vec<ProvidedModuleDesc<'source>>,
+        /// Imported modules.
+        pub requires: Vec<RequiredModuleDesc<'source>>,
+    }
+
+    /// Module identity together with its source and compiled locations.
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct ModuleDesc<'source>
+    {
+        /// Logical name, including a partition suffix.
+        pub logical_name: ModuleName<'source>,
+        /// Source path identifying source-unique modules.
+        pub source_path: Option<Cow<'source, [u8]>>,
+        /// Compiler-reported compiled module location.
+        pub compiled_module_path: Option<Cow<'source, [u8]>>,
+        /// Explicit identity discriminator; omitted means logical-name
+        /// identity.
         pub unique_on_source_path: Option<bool>,
     }
 
     /// Module provided by a translation unit.
-    #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-    #[serde(rename_all = "kebab-case")]
-    pub struct ProvidedModuleDesc
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct ProvidedModuleDesc<'source>
     {
-        /// Identity and optional paths of the provided module.
-        #[serde(flatten)]
-        pub desc: ModuleDesc,
-        /// Defaults to an interface under P1689 when omitted.
-        #[serde(default)]
+        /// Identity and locations.
+        pub desc: ModuleDesc<'source>,
+        /// Interface status; omitted on the wire means true.
         pub is_interface: IsInterface,
     }
 
-    /// Way a module requirement is resolved.
-    #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-    #[serde(rename_all = "kebab-case")]
+    /// Resolution mode for a module requirement.
+    #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
     pub enum LookupMethod
     {
-        /// Import by logical module name.
+        /// Resolve a named module.
         #[default]
         ByName,
-        /// Import an angle-bracket header unit.
+        /// Resolve an angle-bracket header unit.
         IncludeAngle,
-        /// Import a quoted header unit.
+        /// Resolve a quoted header unit.
         IncludeQuote,
     }
 
-    /// Module required by a translation unit.
-    #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-    #[serde(rename_all = "kebab-case")]
-    pub struct RequiredModuleDesc
+    /// Module required before compilation can proceed.
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct RequiredModuleDesc<'source>
     {
-        /// Identity and optional paths of the required module.
-        #[serde(flatten)]
-        pub desc: ModuleDesc,
-        /// Import lookup mode; defaults to module name.
-        #[serde(default)]
+        /// Identity and locations.
+        pub desc: ModuleDesc<'source>,
+        /// Required resolution mode.
         pub lookup_method: LookupMethod,
-    }
-
-    #[cfg(test)]
-    mod tests
-    {
-        use super::DepFile;
-        use super::IsInterface;
-
-        #[test]
-        fn p1689_fields_round_trip()
-        {
-            let source = r#"{"version":1,"revision":5,"rules":[{"work-directory":"build","primary-output":"unit.o","outputs":["unit.pcm"],"provides":[{"logical-name":"lib:part","source-path":"part.cppm","compiled-module-path":"unit.pcm","unique-on-source-path":false,"is-interface":true}],"requires":[{"logical-name":"base","lookup-method":"by-name"}]}]}"#;
-            let decoded: DepFile =
-                serde_json::from_str(source).expect("valid revision 5 dependency file");
-            let encoded = serde_json::to_string(&decoded).expect("serializable dependency file");
-            let decoded_again: DepFile =
-                serde_json::from_str(&encoded).expect("encoded dependency file");
-            assert_eq!(decoded, decoded_again);
-            assert_eq!(
-                decoded
-                    .rules
-                    .first()
-                    .and_then(|rule| rule.provides.first())
-                    .map(|item| item.desc.logical_name.as_ref()),
-                Some("lib:part")
-            );
-        }
-
-        #[test]
-        fn omitted_interface_defaults_to_true()
-        {
-            let source = r#"{"version":1,"rules":[{"provides":[{"logical-name":"api"},{"logical-name":"implementation","is-interface":false}]}]}"#;
-            let decoded: DepFile = serde_json::from_str(source).expect("valid dependency file");
-            let provides = &decoded.rules.first().expect("one rule").provides;
-            assert_eq!(
-                provides.first().map(|item| item.is_interface),
-                Some(IsInterface(true))
-            );
-            assert_eq!(
-                provides.get(1).map(|item| item.is_interface),
-                Some(IsInterface(false))
-            );
-        }
     }
 }

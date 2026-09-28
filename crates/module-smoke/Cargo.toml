@@ -8,6 +8,7 @@ license.workspace = true
 publish = false
 
 [build-dependencies]
+blake3.workspace = true
 cc.workspace = true
 cpp-deps = { path = "../cpp-deps" }
 

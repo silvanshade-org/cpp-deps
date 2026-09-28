@@ -66,6 +66,7 @@ jobs:
           cache_save: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.job == 'clang-test' }}
 
   image-ref:
+    name: resolve the CI image reference
     runs-on: *linux
     outputs:
       image: ${{ steps.ref.outputs.image }}
@@ -77,6 +78,7 @@ jobs:
         run: echo "image=$CPP_DEPS_CI_IMAGE" >> "$GITHUB_OUTPUT"
 
   changes:
+    name: detect changed-file categories
     runs-on: *linux
     outputs:
       rust: ${{ github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || steps.filter.outcome != 'success' || steps.filter.outputs.rust == 'true' }}
@@ -157,6 +159,7 @@ jobs:
         run: mise run check:doc
 
   format:
+    name: check formatting and lint gates (treefmt)
     needs: image-ref
     runs-on: *linux
     container: ${{ needs.image-ref.outputs.image }} # zizmor: ignore[unpinned-images]
@@ -177,6 +180,7 @@ jobs:
         run: mise run treefmt:check
 
   workflow-lint:
+    name: check workflow lints (zizmor)
     runs-on: *linux
     steps:
       - *checkout
