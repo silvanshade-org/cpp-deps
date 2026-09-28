@@ -11,7 +11,7 @@ run = "treefmt --no-cache --fail-on-change"
 
 ["changelog:install"]
 description = "Install the reviewed shared changelog generator"
-run = "cargo install --git https://github.com/silvanshade-org/workflow --rev 19b6f470fd8c1198784e25da78e88d0c6d8a39d5 --locked workflow-changelog"
+run = "cargo install --git https://github.com/silvanshade-org/workflow --rev 60169a4e02a4afb5e21eccd3779ab3d29a0b38ea --locked workflow-changelog"
 
 ["changelog:render"]
 description = "Render release history using the current PR title and Git tags"
