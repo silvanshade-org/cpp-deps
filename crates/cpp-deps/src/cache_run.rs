@@ -274,9 +274,9 @@ fn driver_trace(
 /// Extend the live inventory with persistent outputs declared by the driver.
 ///
 /// # Specification
-/// - ensures: saved intermediates, split debug information and coverage notes
-///   join the same admitted, verified result as the object and BMI; transient
-///   pipe/temporary outputs and runtime coverage data are not compile results.
+/// - ensures: saved intermediates, split debug information, coverage notes and
+///   time traces join the same admitted, verified result as the object and BMI;
+///   transient pipe/temporary outputs and runtime coverage data are excluded.
 /// - fails: malformed driver command words or non-UTF-8 diagnostic paths.
 /// - panics: none.
 fn driver_outputs(
@@ -319,6 +319,7 @@ fn driver_outputs(
                         | "-split-dwarf-output"
                         | "-serialize-diagnostic-file"
                         | "-fthin-link-bitcode"
+                        | "-ftime-trace"
                 )
             {
                 paths.insert(cwd.join(value));
