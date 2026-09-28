@@ -20,6 +20,10 @@ Notable changes to cpp-deps are recorded here.
 - _(ci)_ Align module CI with shared pattern (#9)
 - _(ci)_ Stop Dependabot version-update PRs (#10)
 
+### Documentation
+
+- _(agents)_ Align shared guidance copies (#14)
+
 ### Maintenance
 
 - _(repo)_ Drop the gcc corpus submodule (#8)
