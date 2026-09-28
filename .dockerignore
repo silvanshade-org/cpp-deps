@@ -9,3 +9,7 @@
 !.mise/locks/
 !.mise/locks/npm-oxfmt/
 !.mise/locks/npm-oxfmt/**
+!.config/
+!.config/mise/
+!.config/mise/tasks/
+!.config/mise/tasks/mise-tasks-fmt.toml

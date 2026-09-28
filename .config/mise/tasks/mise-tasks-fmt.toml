@@ -9,6 +9,11 @@ run = "treefmt --no-cache"
 description = "Check formatting and generated history against current commits"
 run = "treefmt --no-cache --fail-on-change"
 
+["changelog:install"]
+description = "Install the reviewed shared changelog generator"
+run = "cargo install --git https://github.com/silvanshade-org/workflow --rev 19b6f470fd8c1198784e25da78e88d0c6d8a39d5 --locked workflow-changelog"
+
 ["changelog:render"]
 description = "Render release history using the current PR title and Git tags"
-run = "cargo run --quiet -p cpp-deps-changelog"
+depends = ["changelog:install"]
+run = "workflow-changelog --exclude-path CHANGELOG.md"

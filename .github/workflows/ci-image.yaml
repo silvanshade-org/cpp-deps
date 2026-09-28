@@ -11,6 +11,7 @@ on:
       - mise.toml
       - mise.lock
       - rust-toolchain.toml
+      - .config/mise/tasks/mise-tasks-fmt.toml
       - .github/docker/ci.Dockerfile
       - .github/workflows/ci-image.yaml
   schedule:
@@ -52,7 +53,7 @@ jobs:
       - *checkout
       - id: hash
         name: hash pinned tool inputs
-        run: echo "tag=$(cat mise.toml mise.lock rust-toolchain.toml | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+        run: echo "tag=$(cat mise.toml mise.lock rust-toolchain.toml .config/mise/tasks/mise-tasks-fmt.toml | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
   build:
     needs: pin

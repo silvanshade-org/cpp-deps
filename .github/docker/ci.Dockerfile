@@ -9,10 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 ENV MISE_DATA_DIR=/opt/mise CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
 ENV PATH="/opt/cargo/bin:/opt/mise/shims:${PATH}"
 # These local-only tools are disabled in exactly the same way by ci.yaml.
-ENV MISE_DISABLE_TOOLS="github:colbymchenry/codegraph,github:max-sixty/worktrunk,github:cli/cli,github:j178/prek,github:nektos/act,github:woodruffw/zizmor,npm:@commitlint/cli"
+ENV MISE_DISABLE_TOOLS="github:colbymchenry/codegraph,github:max-sixty/worktrunk,github:j178/prek,github:nektos/act,github:woodruffw/zizmor,npm:@commitlint/cli"
 WORKDIR /workspace
 COPY mise.toml mise.lock rust-toolchain.toml ./
 COPY .mise/locks/npm-oxfmt/ .mise/locks/npm-oxfmt/
+COPY .config/mise/tasks/mise-tasks-fmt.toml .config/mise/tasks/
 
 ARG TARGETARCH
 RUN set -eu; \
@@ -30,6 +31,7 @@ RUN set -eu; \
     /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain none; \
     rustup toolchain install; \
     mise install --locked; \
+    mise run changelog:install; \
     g++ --version; \
     mise exec -- clang++ --version; \
     mise exec -- clang-scan-deps --version; \
