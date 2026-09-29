@@ -193,8 +193,10 @@ const ASSISTANCE = "Assisted-by: LLM";
 // A commit with a Session line was written with an LLM, so it carries the
 // line. Co-authored-by credits people, the owner and any other human alike; a
 // line naming a known assistant identity belongs in Assisted-by instead.
+// Match full assistant names, service domains, or explicit bot markers.
+// A word inside a human name or personal email does not identify an assistant.
 const ASSISTANT_COAUTHOR =
-  /\b(anthropic|claude|openai|chatgpt|codex|copilot|gemini|cursor|llm)\b|\[bot\]/i;
+  /^Co-authored-by:\s*(?:anthropic|claude(?: code)?|openai|chatgpt|codex|(?:github )?copilot|coderabbit(?:ai)?|gemini|cursor|llm)\s*(?:<[^<>]*>)?$|<[^<>@]+@(?:[^<>@]+\.)?(?:anthropic\.com|openai\.com|coderabbit\.ai)>|\[bot\]/i;
 
 const sessionAssistance = (parsed) => {
   const raw = parsed.raw ?? "";
@@ -202,13 +204,13 @@ const sessionAssistance = (parsed) => {
   const assists = lines.filter((line) => /^Assisted-by:/i.test(line));
   const bad = assists.find((line) => line !== ASSISTANCE);
   if (bad) return [false, `malformed assistance trailer "${bad}": exactly ${ASSISTANCE}`];
-  if (!lines.some((line) => /^Session:/i.test(line))) return [true, ""];
-  if (assists.length === 0) return [false, `an agent commit carries ${ASSISTANCE}`];
   const assistant = lines.find(
     (line) => /^Co-authored-by:/i.test(line) && ASSISTANT_COAUTHOR.test(line),
   );
   if (assistant)
     return [false, `an assistant is never a co-author; "${assistant}" belongs in ${ASSISTANCE}`];
+  if (!lines.some((line) => /^Session:/i.test(line))) return [true, ""];
+  if (assists.length === 0) return [false, `an agent commit carries ${ASSISTANCE}`];
   return [true, ""];
 };
 

@@ -55,4 +55,6 @@ Workflow display names match the protected branch's required status checks. Job 
 
 ## CI
 
+Commit lint rejects known assistant co-authors even without a session trailer. Human co-authors remain valid; assistance uses `Assisted-by: LLM`.
+
 Pull requests run light quality, format, workflow lint, and fail-open path-filter contracts. Main pushes and merge queues add both Clang 22 and GCC 16 module tests with nextest JUnit reports. The native compiler lanes invoke ccache and retain per-unit depfiles; clangd, clang-tidy, and clang-format share the reference runtime profile. Run `mise run check:ci-pins` to verify workflow/image tool pin agreement and `mise run check:ci-scripts` to exercise the filter boundaries and `mise run lint:cpp` for every module translation unit and `mise exec -- act push -j workflow-lint` for the local workflow smoke. The prebuilt image stays optional until its published GHCR tag has passed a preview run.
