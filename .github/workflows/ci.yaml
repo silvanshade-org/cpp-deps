@@ -46,7 +46,7 @@ jobs:
         with:
           persist-credentials: false
       - &git-checkout-history
-        name: checkout full history for changelog
+        name: checkout full history for commit lint
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -199,12 +199,19 @@ jobs:
         run: mise run check:conflict-markers
       - name: verify shared baseline pin
         run: mise run check:baseline-hash
-      - name: verify changelog, format and file budgets
+      - name: verify formatting and file budgets
         run: mise run treefmt:check
       - name: ci pin drift check
         run: mise run check:ci-pins
       - name: ci script fixture suite
         run: mise run check:ci-scripts
+      - name: lint authored commits
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        shell: bash
+        env:
+          COMMITLINT_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          MISE_DISABLE_TOOLS: github:colbymchenry/codegraph,github:max-sixty/worktrunk,github:cli/cli,github:j178/prek,github:nektos/act,github:woodruffw/zizmor
+        run: git rev-list --reverse --no-merges "$COMMITLINT_BASE..HEAD" | xargs -I{} env COMMITLINT_COMMIT={} mise exec -- commitlint --from {}~1 --to {}
 
   workflow-lint:
     name: check workflow lints (zizmor)

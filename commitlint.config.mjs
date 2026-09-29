@@ -76,28 +76,39 @@ const noHarnessTrailer = (parsed) => {
   ];
 };
 
-// The author git will record, resolved the way a prepare-commit-msg hook
-// resolves it: `git var GIT_AUTHOR_IDENT` honours GIT_AUTHOR_* exported by
-// rebase and cherry-pick, so a replayed owner commit stays exempt and a
-// replayed agent commit stays bound.
+// The commit's author. CI lints landed commits one at a time and names each
+// in COMMITLINT_COMMIT, so the author is the one that commit records. The
+// local hook lints a commit not yet made, so the author is the one git will
+// record, resolved the way a prepare-commit-msg hook resolves it:
+// `git var GIT_AUTHOR_IDENT` honours GIT_AUTHOR_* exported by rebase and
+// cherry-pick, so a replayed owner commit stays exempt and a replayed agent
+// commit stays bound. An explicitly named commit that git cannot resolve fails
+// the lint rather than passing as a non-agent author.
 const commitAuthor = () => {
+  const commit = process.env.COMMITLINT_COMMIT;
+  const args = commit ? ["show", "-s", "--format=%an <%ae>", commit] : ["var", "GIT_AUTHOR_IDENT"];
   try {
-    return execFileSync("git", ["var", "GIT_AUTHOR_IDENT"], { encoding: "utf8" }).trim();
-  } catch {
+    return execFileSync("git", args, { encoding: "utf8" }).trim();
+  } catch (error) {
+    if (commit)
+      throw new Error(`COMMITLINT_COMMIT=${commit}: cannot resolve its author`, { cause: error });
     return "";
   }
 };
 
-// An agent commit carries a three-line provenance block: the broad role, the
-// opaque session token, and the owner co-author line, in that order. The three
-// rules below enforce one side each. None of them repeats the harness-trailer
+// An agent commit carries a four-line provenance block: the broad role, the
+// opaque session token, the owner co-author line, and `Assisted-by: LLM`, in
+// that order. The rules below enforce one side each. None of them repeats the harness-trailer
 // refusal above, which owns the plaintext-forensics class by shape.
 const sessionTrailerRequired = (parsed) => {
   const raw = parsed.raw ?? "";
+  // Resolved before any trailer check, so an unresolvable COMMITLINT_COMMIT
+  // fails even when the message carries a complete block.
+  const author = commitAuthor();
 
   // Every Session line must be opaque — one valid line must not mask a
-  // malformed or plaintext sibling. Multiple valid lines stay legal: squash
-  // messages concatenate the branch commits' messages. The form check binds
+  // malformed or plaintext sibling. Multiple valid lines stay legal: an
+  // autosquashed `squash!` commit concatenates its messages. The form check binds
   // whatever the author: a broken trailer is broken.
   const sessions = raw.split("\n").filter((line) => /^Session:/i.test(line.trimEnd()));
   if (sessions.length > 0) {
@@ -110,7 +121,7 @@ const sessionTrailerRequired = (parsed) => {
   // commit sits outside the block and carries no token, so a non-agent author
   // passes; the resolution honours the ambient GIT_AUTHOR_*, so a replayed
   // owner commit stays exempt under rebase and cherry-pick.
-  if (!commitAuthor().startsWith("agent-")) return [true, ""];
+  if (!author.startsWith("agent-")) return [true, ""];
   return [
     false,
     "commit needs an opaque Session trailer beside its Role and owner co-author lines",
@@ -126,8 +137,8 @@ const ROLE_LINE = new RegExp(`^Role: (?:${ROLES.join("|")})$`);
 // The Role trailer rides beside the Session trailer on agent commits. Its form
 // check binds whatever the author — a broken trailer is broken — and its
 // presence binds agent authors only, exactly as the Session side does. Multiple
-// valid lines stay legal for the same reason: squash messages concatenate the
-// branch commits' messages.
+// valid lines stay legal for the same reason: an autosquashed `squash!` commit
+// concatenates its messages.
 const sessionRoleRequired = (parsed) => {
   const raw = parsed.raw ?? "";
   const roles = raw.split("\n").filter((line) => /^Role:/i.test(line.trimEnd()));
@@ -143,13 +154,13 @@ const sessionRoleRequired = (parsed) => {
 
 const OWNER_COAUTHOR = "Co-authored-by: silvanshade <silvanshade@users.noreply.github.com>";
 
-// The Session trailer pairs with the Role line and the owner co-author line:
-// the three-line block above. No Session line -> owner-solo commit, no
+// The Session trailer pairs with the Role line and the owner co-author line of
+// the provenance block above. No Session line -> owner-solo commit, no
 // obligation (sessionTrailerRequired owns the Session side). With any Session
-// line, exactly one owner line — a multi-Session (squash-concatenated) message
-// carries the owner line once, not once per session — and one Role line per
-// Session line, so an authored commit carries exactly one of each and a squash
-// carries the pairs it concatenated.
+// line, exactly one owner line — a multi-Session (autosquash-concatenated)
+// message carries the owner line once, not once per session — and one Role
+// line per Session line, so an authored commit carries exactly one of each and
+// a concatenated message carries the pairs it joined.
 const sessionCoauthorPairing = (parsed) => {
   const raw = parsed.raw ?? "";
   const lines = raw.split("\n").map((line) => line.trimEnd());
@@ -175,6 +186,32 @@ const sessionCoauthorPairing = (parsed) => {
   return [true, ""];
 };
 
+const ASSISTANCE = "Assisted-by: LLM";
+
+// Assistance is declared, never attributed: every Assisted-by line reads
+// exactly `Assisted-by: LLM`, naming no model and no tool, whatever the author.
+// A commit with a Session line was written with an LLM, so it carries the
+// line. Co-authored-by credits people, the owner and any other human alike; a
+// line naming a known assistant identity belongs in Assisted-by instead.
+const ASSISTANT_COAUTHOR =
+  /\b(anthropic|claude|openai|chatgpt|codex|copilot|gemini|cursor|llm)\b|\[bot\]/i;
+
+const sessionAssistance = (parsed) => {
+  const raw = parsed.raw ?? "";
+  const lines = raw.split("\n").map((line) => line.trimEnd());
+  const assists = lines.filter((line) => /^Assisted-by:/i.test(line));
+  const bad = assists.find((line) => line !== ASSISTANCE);
+  if (bad) return [false, `malformed assistance trailer "${bad}": exactly ${ASSISTANCE}`];
+  if (!lines.some((line) => /^Session:/i.test(line))) return [true, ""];
+  if (assists.length === 0) return [false, `an agent commit carries ${ASSISTANCE}`];
+  const assistant = lines.find(
+    (line) => /^Co-authored-by:/i.test(line) && ASSISTANT_COAUTHOR.test(line),
+  );
+  if (assistant)
+    return [false, `an assistant is never a co-author; "${assistant}" belongs in ${ASSISTANCE}`];
+  return [true, ""];
+};
+
 export default {
   extends: ["@commitlint/config-conventional"],
   plugins: [
@@ -185,6 +222,7 @@ export default {
         "session-trailer-required": sessionTrailerRequired,
         "session-role-required": sessionRoleRequired,
         "session-coauthor-pairing": sessionCoauthorPairing,
+        "session-assistance": sessionAssistance,
       },
     },
   ],
@@ -204,6 +242,7 @@ export default {
     "session-trailer-required": [2, "always"],
     "session-role-required": [2, "always"],
     "session-coauthor-pairing": [2, "always"],
+    "session-assistance": [2, "always"],
     // Stock conventional types plus config, for changes to the repository's
     // configuration surfaces (lint vocabularies, tool settings).
     "type-enum": [

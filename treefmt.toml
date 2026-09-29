@@ -35,14 +35,6 @@ excludes = [
 # here in the same change, and a consumer with no surface for a formatter drops
 # both. The entries below are the union: Rust, markdown, TOML, JS and JSON,
 # spelling, file size, and shell.
-# Generate release notes before Markdown formatting; unchanged bytes are not rewritten.
-[formatter."changelog-generate"]
-priority = -3
-command = "mise"
-options = ["run", "changelog:render"]
-includes = ["CHANGELOG.md"]
-no-positional-arg-support = true
-
 [formatter."clang-format"]
 priority = 0
 command = "mise"
