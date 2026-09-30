@@ -49,7 +49,7 @@ jobs:
         uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 ```
 
-Each consumer supplies `permissions: *image-permissions` and reuses `*git-checkout`, `*registry-login`, and `*setup-buildx`; the build matrix still selects native runners. The gate workflow similarly shares Rust setup, tool installation, cache operations, reports, and repeated job metadata. Job parameters select tool sets and report destinations. Tool versions resolve in step context because job-level `env` cannot refer to workflow `env`. Only the history-dependent formatting job requests a full checkout; only the existing main warmer jobs save shared caches.
+Each consumer supplies `permissions: *image-permissions` and reuses `*git-checkout`, `*registry-login`, and `*setup-buildx`; the build matrix still selects native runners. The gate workflow similarly shares Rust setup, tool installation, cache operations, reports, and repeated job metadata. Job parameters select tool sets and report destinations. Tool versions resolve in step context because job-level `env` cannot refer to workflow `env`. Only the job that lints a PR's commits requests a full checkout, because it reads the PR's commit range; only the existing main warmer jobs save shared caches.
 
 Verify the expanded execution contract and exercise every applicable job under act, including parameter variants and image/bootstrap conditions. Compare timings under matching events, platforms, images, and cache state; hosted acceptance remains the [container measurement contract](#container-image). Revisit this sharing rule only on measured regression or changed workflow-engine capabilities, never for editing convenience.
 
@@ -61,6 +61,15 @@ An inline `run:` step MUST be one command or one pipeline. Branching orchestrati
 - `scripts/ci/check-private-paths.sh` — the private operational boundary for tracked files and commit messages: it bars internals, never provenance; `scripts/ci/check-private-paths.test.sh` proves the provenance fields pass and private references fail, and `mise run check:ci-scripts` runs it.
 - `scripts/ci/check-pins.sh` — the workflow's tool pins (`CARGO_NEXTEST_VERSION`, `DYLINT_VERSION`) against `mise.toml`, and the consumer's compiler/tool versions against its full-revision Git library source; `mise run check:ci-pins` runs it. Dylint authoring dependencies belong to the library producer, not the consumer manifest.
 - the `.github/actions/setup-rust` composite action (invoked from the workflow as `./.github/actions/setup-rust`) — the rustup cache restore and save, the toolchain install, and the shared Rust dependency cache, shared by every Rust job.
+
+## Merge settings and review
+
+The repository settings, the ruleset and the review bot carry the landing rules of [source-workflow.md §commits](source-workflow.md#commits):
+
+- **Repository:** merge commits only (`allow_merge_commit: true`, `allow_squash_merge: false`, `allow_rebase_merge: false`), with `merge_commit_title: PR_TITLE` and `merge_commit_message: BLANK`.
+- **Ruleset:** no `required_linear_history` rule; the pull-request rule allows only the `merge` method; a merge queue uses `merge_method: MERGE`; `dismiss_stale_reviews_on_push: false`. Signatures stay required: the authored commits keep their own signatures and GitHub signs the merge commits it creates, while a rebase merge cannot be signed and is refused.
+- **CodeRabbit:** `.coderabbit.yaml` sets `reviews.auto_review.enabled: false`, so nothing is reviewed until a review is requested, and `reviews.auto_review.base_branches: [".*"]`, so a stacked child whose base is not the default branch is not skipped. Both keys sit under `reviews.auto_review`; the schema has no `reviews.base_branches`, and a key placed there is ignored.
+- **Commit lint job:** runs on pull requests and merge-group entries, over the range from `pull_request.base.sha` or `merge_group.base_sha` to the head. It skips merge commits and lints each remaining commit under that commit's own recorded author, because the agent-commit rules bind by author; one commitlint `--from`/`--to` run resolves a single ambient author for the whole range. One pipeline carries the iteration, as [§Inline run: rule](#inline-run-rule) requires: `git rev-list --reverse --no-merges <base>..HEAD | xargs -I{} env COMMITLINT_COMMIT={} mise exec -- commitlint --from {}~1 --to {}`, under `bash` so `pipefail` fails the step when `rev-list` fails. The shared `hooks/commitlint.config.mjs` reads the author of the commit `COMMITLINT_COMMIT` names, and falls back to `git var GIT_AUTHOR_IDENT` in the local hook.
 
 ## Requirements
 

@@ -1,0 +1,5 @@
+# Reviews are requested manually for every PR base, including stack parents.
+reviews:
+  auto_review:
+    enabled: false
+    base_branches: [".*"]

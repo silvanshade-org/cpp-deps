@@ -2,13 +2,13 @@
 #:schema https://mise.jdx.dev/schema/mise-task.json
 
 [treefmt]
-description = "Run treefmt without a cache that ignores Git commit identity"
-run = "treefmt --no-cache"
+description = "Format the repository"
+run = "treefmt"
 
 ["treefmt:check"]
-description = "Check formatting and generated history against current commits"
-run = "treefmt --no-cache --fail-on-change"
+description = "Check formatting and file budgets"
+run = "treefmt --fail-on-change"
 
-["changelog:render"]
-description = "Render release history using the current PR title and Git tags"
-run = "cargo run --quiet -p cpp-deps-changelog"
+[changelog]
+description = "Render committed release history after fetching full history and tags"
+run = "git-cliff --config cliff.toml --output CHANGELOG.md"
